@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.4
+
+- README: what forces an adoption. Tiers over the whole tree with ESLint's
+  bulk suppressions as the ratchet, replaced modules under
+  `no-restricted-imports`, and red gates written before the seam.
+
 ## 0.5.3
 
 - Lint: a key written before a spread in the same object literal is refused

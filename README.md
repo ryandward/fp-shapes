@@ -132,6 +132,25 @@ the touched modules hold no `if`, `switch`, `throw`, null check, `as` or `!`
 outside `boundary/` and `effects/`, their line count went down, and the
 replaced symbol has no references left.
 
+None of that holds by instruction; an instruction is satisfied by its
+cheapest reading. It holds when the build is red until it is true. Three
+settings make it so, with the tools already in the tree:
+
+- The tiers cover the whole tree, not the new directories, and the existing
+  violations are recorded once: `eslint --suppress-all` writes
+  `eslint-suppressions.json`, which is committed. From then on a new
+  violation anywhere fails the lint, and a fixed violation whose entry was
+  not pruned (`eslint --prune-suppressions`) fails it too, so the file can
+  only shrink and every shrink is in the diff. A seam is done when its
+  files have no entries.
+- The modules a seam replaces go into `no-restricted-imports` when the seam
+  starts, with the message naming the replacement. Every importer is red
+  until it moves; the module is deleted when the rule has nothing left to
+  refuse.
+- The seam's gates are written first and red: the `Assert` lines on its
+  facts, the `KindsOf` pin, the mutation list. The task is to make them
+  green, and a red gate cannot be satisfied by a wrapper.
+
 ## The library
 
 | Shape | File | Pins | Stands in for |
