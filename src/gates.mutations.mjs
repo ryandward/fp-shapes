@@ -24,6 +24,9 @@ export const mutations = [
   ['let cases share fields', edit('src/variant.ts', '& M[P] & OnlyOwn<M, P>', '& M[P]')],
   ['let Total accept a recursive type', edit('src/total.ts', "  : Among<T, Seen> extends true ? 'recursive'\n", '')],
   ['let a fact nest past four containers', edit('src/total.ts', 'type Depth = readonly [0, 0, 0, 0];', 'type Depth = readonly [0, 0, 0, 0, 0, 0, 0, 0];')],
+  ['let a seal hide depth', edit('src/total.ts', "  : T extends Sealed<symbol, infer P, Use> ? Walk<P, Seen>\n", '')],
+  ['let a seal hide a hole', edit('src/total.ts', '      T extends Sealed<symbol, infer P, Use> ? HasHoles<P>\n      : T extends Primitive ? false', '      T extends Primitive ? false')],
+  ['let a seal hide a mutable field', edit('src/total.ts', '    T extends Sealed<symbol, infer P, Use> ? HasMutable<P>\n    : T extends Primitive ? false', '    T extends Primitive ? false')],
   ['report depth as recursion', edit('src/total.ts', "  : Seen['length'] extends Depth['length'] ? 'deep'\n", "  : Seen['length'] extends Depth['length'] ? 'recursive'\n")],
   ['let a fold omit a case', edit('src/variant.ts', 'readonly [K in keyof M]: (v: Variant<M, K>) => R;', 'readonly [K in keyof M]?: (v: Variant<M, K>) => R;')],
   [

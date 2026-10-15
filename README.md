@@ -146,7 +146,7 @@ replaced symbol has no references left.
 | `Sealed<Tag, T, Use>` + `Sealed.open` / `Sealed.spend` | `src/sealed.ts` | who sealed it, and whether it is held (`'open'`: read any number of times) or spent (`'spend'`: read once, by the reader that consumes it); the reads re-check the brand at runtime, `spend` halts on a second read, and the payload is frozen at seal time, all the way down | symbol-branded objects; a receipt or token used twice |
 | `Decide<F, A, M>` | `src/sealed.ts` | an owner's decision: facts in, sealed verdict out | decision functions returning plain objects |
 | `compare` + `Comparison` | `src/boundary/compare.ts` | the one structural comparison: two facts are the same when every leaf is, by `Object.is`; a difference carries the path to the first leaf that differs; sealed values compare by identity | `===` on records, which is identity; `JSON.stringify(a) === JSON.stringify(b)` |
-| `Total<T>` | `src/total.ts` | completeness: no `?:`, `undefined`, `unknown`, `any`, `never`, function, index signature, `Date`, or open object (`{}`, `object`); exclusion keys (`k?: never`) are not holes; a type that contains its own kind answers `Recursive<T>` and one that nests past four containers answers `Deep<T>`, each naming the property | trusting `z.output` to be complete |
+| `Total<T>` | `src/total.ts` | completeness: no `?:`, `undefined`, `unknown`, `any`, `never`, function, index signature, `Date`, or open object (`{}`, `object`); exclusion keys (`k?: never`) are not holes; a type that contains its own kind answers `Recursive<T>` and one that nests past four containers answers `Deep<T>`, each naming the property; a sealed value is read through to its payload, so sealing a shape does not hide it | trusting `z.output` to be complete |
 | `Immutable<T>` | `src/total.ts` | every property readonly, every array a `ReadonlyArray`, all the way down; recursion answers `Recursive<T>`, depth `Deep<T>` | mutable schema outputs |
 | `Exact<A, B>` | `src/total.ts` | correspondence: both total, same keys, mutually assignable | a key-set comparison at one level |
 | `Boundary<F>`, `Parse<F>`, `boundary`, `TotalSchema` | `src/boundary/boundary.ts` | the only shape that accepts `unknown`; a boundary schema has a total, readonly output, checked at the definition | ad-hoc parsing; `JSON.parse as T`; per-schema assertions |
@@ -236,7 +236,7 @@ subject to a rule.
 `noUncheckedIndexedAccess`, `noUnusedLocals`) over the library, the examples
 and the tests; lint; 107 rule fixtures (86 for the domain tier, 11 for the
 boundary tier, 8 for the effects tier, 2 for the ETL example); no `.d.ts`
-under `src`; 25 mutations (16 against the library's gates, 9 against the
+under `src`; 28 mutations (19 against the library's gates, 9 against the
 examples'); 56 runtime tests.
 
 ## Examples
@@ -317,7 +317,9 @@ says; the ones after them are the ones that make it stop.
   its identifier belongs, or a decision folded into the data it was made
   about. Give the inner shape its own name and its own gate, and hold a
   reference or the decided case here. The number is not a compiler limit;
-  it is the model's.
+  it is the model's. Sealing the deep value does not answer it: every
+  assertion reads a sealed value through to its payload, and the envelope
+  is not a container.
 - `Total` answers `false`. Some key is optional, undefined, unknown, open, or
   a function. Decide the absence at the boundary (`.default()`,
   `.nullable()`); replace the open record with named keys; move the function

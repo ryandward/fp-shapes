@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.2
+
+- `Total`, `Immutable`, `Recursive` and `Deep` read a sealed value through
+  to its payload. A sealed payload is total, readonly and shallow like any
+  fact, and the envelope is not a container, so sealing a deep or sparse
+  shape does not hide it from the assertions. Four gates and three
+  mutations pin it.
+
 ## 0.5.1
 
 - README: "Adopting in an existing codebase". An integration is measured by

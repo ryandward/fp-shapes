@@ -107,6 +107,14 @@ export type _r9 = Assert<Equal<Deep<Five>['a fact is shallow; this one nests pas
 export type _r10 = Assert<Equal<Deep<Wide>['a fact is shallow; this one nests past four containers through'], never>>; // width is not depth
 export type _r11 = Assert<Total<Wide>>;
 
+// --- a sealed value is a fact: every assertion reads its payload ----------------
+
+type Holding = { readonly status: Sealed<typeof _A, Five> };
+export type _s1 = Assert<Equal<Total<Holding>, Deep<Holding>>>; // sealing a shape does not hide it from the bound
+export type _s2 = Assert<Equal<Total<Sealed<typeof _A, { readonly n?: number }>>, false>>; // a sealed payload is total
+export type _s3 = Assert<Equal<Immutable<Sealed<typeof _A, { n: number }>>, false>>; // a sealed payload is readonly
+export type _s4 = Assert<Total<Sealed<typeof _A, Four>>>; // the envelope is not a container
+
 // --- the assertion utilities are gates too ------------------------------------
 
 type Brand = string & { readonly __brand: 'Id' };

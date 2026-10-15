@@ -26,7 +26,12 @@
 //
 // These are gates, so they are tested in gates.typetest.ts like any other gate.
 
+import type { Sealed, Use } from './sealed.js';
+
 type IsAny<T> = 0 extends 1 & T ? true : false;
+
+// A sealed value is a fact with provenance; every assertion reads its payload,
+// so sealing a shape does not hide the shape. The envelope is not a container.
 
 type Primitive = string | number | boolean | bigint | symbol | null;
 
@@ -50,6 +55,7 @@ type Among<T, Seen extends readonly unknown[]> =
 type Walk<T, Seen extends readonly unknown[] = []> =
   IsAny<T> extends true ? 'finite'
   : [T] extends [never] ? 'finite'
+  : T extends Sealed<symbol, infer P, Use> ? Walk<P, Seen>
   : T extends Primitive ? 'finite'
   : T extends (...args: never[]) => unknown ? 'finite'
   : Among<T, Seen> extends true ? 'recursive'
@@ -60,7 +66,8 @@ type Walk<T, Seen extends readonly unknown[] = []> =
 
 // The top-level properties through which an answer runs.
 type Through<T, Which extends 'recursive' | 'deep', Seen extends readonly unknown[] = []> =
-  T extends readonly (infer E)[] ? Through<E, Which, [...Seen, T]>
+  T extends Sealed<symbol, infer P, Use> ? Through<P, Which, Seen>
+  : T extends readonly (infer E)[] ? Through<E, Which, [...Seen, T]>
   : T extends object ? { [K in keyof T]-?: Which extends Walk<T[K], [...Seen, T]> ? K : never }[keyof T]
   : never;
 
@@ -73,7 +80,8 @@ type HasHoles<T> =
   : unknown extends T ? true
   : undefined extends T ? true
   : true extends (
-      T extends Primitive ? false
+      T extends Sealed<symbol, infer P, Use> ? HasHoles<P>
+      : T extends Primitive ? false
       : T extends (...args: never[]) => unknown ? true
       : T extends readonly (infer E)[] ? ([E] extends [never] ? false : HasHoles<E>)
       : T extends object ?
@@ -103,7 +111,8 @@ type MutableKeys<T extends object> = {
 
 type HasMutable<T> =
   true extends (
-    T extends Primitive ? false
+    T extends Sealed<symbol, infer P, Use> ? HasMutable<P>
+    : T extends Primitive ? false
     : T extends unknown[] ? true // a mutable array or tuple
     : T extends readonly (infer E)[] ? HasMutable<E>
     : T extends object ?
