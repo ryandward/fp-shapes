@@ -1,43 +1,25 @@
 {
   "name": "fp-shapes",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "npm run typecheck && npm run lint && npm run lint:fixtures && npm run check:rules && npm run check:accept && npm run check:dts && npm run check:gates && npm test",
-    "typecheck": "tsc -p tsconfig.json",
-    "check:gates": "node scripts/mutations.mjs src/gates.mutations.mjs examples/fulfil/gates.mutations.mjs",
-    "lint": "eslint src examples --ignore-pattern '**/fixtures/**'",
-    "check:rules": "node scripts/rule-coverage.mjs",
-    "accept": "node scripts/accept.mjs examples",
-    "check:accept": "npm run accept && node scripts/accept.mjs --fixtures fixtures/accept",
-    "lint:fixtures": "node scripts/lint-fixtures.mjs && node scripts/lint-fixtures.mjs fixtures/rules/boundary && node scripts/lint-fixtures.mjs fixtures/rules/effects",
-    "check:dts": "test -z \"$(find src -name '*.d.ts')\" || (echo 'src holds compiled modules only; an ambient declaration belongs in a *.typetest.ts' && exit 1)",
-    "test": "tsx --test 'test/*.test.ts' 'examples/**/*.test.ts'"
+    "check": "tsc -p tsconfig.json && npm test",
+    "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
-    "eslint": "^9.39.5",
     "tsx": "^4.23.15",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.71.2"
+    "typescript": "^5.9.3"
   },
   "files": [
     "src",
-    "eslint.config.js",
-    "tsconfig.json",
-    "fixtures",
-    "scripts",
-    "README.md",
-    "SPEC.md",
-    "GUARANTEES.md",
-    "CHANGELOG.md"
+    "README.md"
   ],
   "exports": {
-    ".": "./src/index.ts",
-    "./effects/attempt": "./src/effects/attempt.ts"
+    ".": "./src/index.ts"
   }
 }

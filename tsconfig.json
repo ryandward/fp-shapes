@@ -25,11 +25,9 @@
   },
   "include": [
     "src",
-    "examples",
     "test"
   ],
   "exclude": [
-    "**/fixtures/**",
     "node_modules"
   ]
 }

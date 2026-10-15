@@ -1,21 +1,10 @@
-// The library. Vendor src/ and import from here; eslint.config.js and
-// tsconfig.json carry the enforcement that makes the shapes hold.
-
-export { fold, mapNonEmpty, partition } from './variant.js';
-export type { Cases, Classify, KindsOf, NonEmpty, Partition, Variant } from './variant.js';
-export { Sealed } from './sealed.js';
-export type { Decide, Use } from './sealed.js';
-export { ledger } from './ledger.js';
-export type { Ledger } from './ledger.js';
-export { commands, drive } from './command.js';
-export type { Effects, Entry, Operation, Operations, Run, Step } from './command.js';
-export type { Assert, Equal, Exact, Immutable, Recursive, Total } from './total.js';
-export { boundary, sealing } from './boundary/boundary.js';
-export type { Boundary, Fact, Issue, Parse, TotalSchema } from './boundary/boundary.js';
-export { occupancy } from './boundary/evidence.js';
-export type { Occupancy } from './boundary/evidence.js';
-export { compare } from './boundary/compare.js';
-export type { Comparison } from './boundary/compare.js';
-// `attempt` is imported from './effects/attempt.js' by effects modules; the
-// index carries shapes, and the domain tier refuses an import from effects/.
-export type { Outcome, Tried } from './effects/attempt.js';
+export { match, none, some, ok, err, tryCatch, nonEmpty } from './union.js';
+export type { Union, Handlers, Option, OptionCases, Result, ResultCases, NonEmptyArray } from './union.js';
+export { Opaque } from './opaque.js';
+export type { Use } from './opaque.js';
+export { deepFreeze } from './freeze.js';
+export type { IsComplete, IsDeepReadonly, Recursive, Equal, Expect } from './types.js';
+export { decoder } from './decode.js';
+export type { Decoder, Issue, CompleteSchema } from './decode.js';
+export { program, run } from './program.js';
+export type { Operation, Operations, Program, Continuations, Constructors, Interpreter, LogEntry, Outcome } from './program.js';
