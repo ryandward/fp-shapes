@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.7
+
+Two of a reviewer's four bypass programs closed; the other two recorded.
+
+- Domain tier: a comparison operator or `!` is refused (a comparison is a
+  decision; sameness is `compare`), and so are `filter`, `find`,
+  `findIndex`, `findLast`, `findLastIndex`, `some` and `every` (a
+  classification is a `partition`). An inferred-boolean predicate inside
+  `filter` passed the predicate rule, which reads annotations.
+- Domain and boundary tiers: `call`, `apply`, `bind` and any `prototype`
+  access are refused; `Array.prototype.push.call(xs, 1)` reached the
+  mutator with its name hidden from the method rule. Effects keep `call`
+  for foreign methods bound to their receiver.
+- `fixtures/open/`: the two programs no syntax tier can refuse, each with
+  the layer that closes it (the type-aware tier; effects as commands).
+
 ## 0.5.6
 
 Every rule is proved by a fixture, and the check says so.

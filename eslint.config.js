@@ -63,6 +63,26 @@ const rules = {
   sums: [
     rule('TSUnionType > TSTypeLiteral:has(TSPropertySignature)', 'a sum of records is a Variant over a map: name the cases as keys and fold them'),
   ],
+  // A comparison is a decision. Equality of facts is `compare`, a boundary
+  // decision; ordering and membership are classified at the boundary too.
+  comparisons: [
+    rule("BinaryExpression[operator=/^(===|!==|==|!=|<|>|<=|>=)$/]", 'a comparison is a decision: classify at the boundary (compare, for sameness), fold here'),
+    rule("UnaryExpression[operator='!']", 'a negation is a decision: classify at the boundary, fold here'),
+  ],
+  // filter, find, some and every classify by a predicate and lose the other
+  // cases; partition keeps every case under its name.
+  classification: [
+    rule(
+      "CallExpression[callee.property.name=/^(filter|find|findIndex|findLast|findLastIndex|some|every)$/], CallExpression[callee.property.value=/^(filter|find|findIndex|findLast|findLastIndex|some|every)$/]",
+      'a classification is a partition: one pass, every case kept under its name, no predicate',
+    ),
+  ],
+  // A method reached through a prototype or applied with call/apply/bind is
+  // the same method with its name hidden from every rule above.
+  indirection: [
+    rule("CallExpression[callee.property.name=/^(call|apply|bind)$/], CallExpression[callee.property.value=/^(call|apply|bind)$/]", 'a function is called directly; call, apply and bind hide which one'),
+    rule("MemberExpression[property.name='prototype'], MemberExpression[property.value='prototype']", 'a method is called on its value; a prototype is not a value here'),
+  ],
   predicates: [
     rule(':function > TSTypeAnnotation > TSBooleanKeyword', 'return a Variant for the caller to fold'),
     rule('TSFunctionType > TSTypeAnnotation > TSBooleanKeyword', 'return a Variant for the caller to fold'),
@@ -241,7 +261,7 @@ export default [
     files: ['**/boundary/**/*.ts'],
     ignores: ['**/*.test.ts'],
     rules: {
-      'no-restricted-syntax': syntax(...except('conditionals', 'unknown', 'predicates', 'brackets')),
+      'no-restricted-syntax': syntax(...except('conditionals', 'comparisons', 'classification', 'unknown', 'predicates', 'brackets')),
       'no-restricted-imports': boundaryImports,
       'no-restricted-globals': boundaryGlobals,
       'local/directives-are-gates': 'error',
@@ -251,7 +271,7 @@ export default [
     // primitives: the one class has its constructor, its ternary and its halt
     files: ['**/sealed.ts'],
     rules: {
-      'no-restricted-syntax': syntax(...except('conditionals', 'exceptions', 'classes', 'mutation', 'brackets')),
+      'no-restricted-syntax': syntax(...except('conditionals', 'comparisons', 'exceptions', 'classes', 'mutation', 'brackets')),
       'no-restricted-globals': effectsGlobals,
       'local/directives-are-gates': 'error',
     },
@@ -281,7 +301,7 @@ export default [
     // its predicates, optional methods and thrown classes once each
     files: ['**/effects/**/foreign.ts'],
     rules: {
-      'no-restricted-syntax': syntax(...except('conditionals', 'exceptions', 'loops', 'unknown', 'predicates', 'holes', 'absence', 'sums', 'effects', 'brackets', 'spreads')),
+      'no-restricted-syntax': syntax(...except('conditionals', 'comparisons', 'classification', 'indirection', 'exceptions', 'loops', 'unknown', 'predicates', 'holes', 'absence', 'sums', 'effects', 'brackets', 'spreads')),
       'local/directives-are-gates': 'error',
     },
   },
@@ -290,7 +310,7 @@ export default [
     files: ['**/effects/**/*.ts'],
     ignores: ['**/effects/**/foreign.ts', '**/*.test.ts'],
     rules: {
-      'no-restricted-syntax': syntax(...except('conditionals', 'exceptions', 'loops', 'unknown', 'effects', 'brackets')),
+      'no-restricted-syntax': syntax(...except('conditionals', 'comparisons', 'classification', 'indirection', 'exceptions', 'loops', 'unknown', 'effects', 'brackets')),
       'no-restricted-imports': imports,
       'no-restricted-globals': effectsGlobals,
       'local/directives-are-gates': 'error',

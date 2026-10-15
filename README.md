@@ -246,7 +246,12 @@ and a spread member is not, so a spread is how keys a type does not
 declare enter a fact, and how an old shape travels under a new label.
 Array spread stays, since an array has no keys and `[...xs, y]` keeps a
 tuple's type; the mutating array methods (`push`, `sort`, `splice`, …) are
-refused, since a fresh array is typed mutable. `boundary/` decides: conditionals, `unknown`, zod
+refused, since a fresh array is typed mutable, and so are `call`, `apply`,
+`bind` and any `prototype`, which reach the same methods with their names
+hidden. A comparison (`===`, `<`, `!`) is a decision and `filter`, `find`,
+`some`, `every` classify by a predicate, so the domain has neither;
+sameness is `compare`, a boundary decision, and a classification is a
+`partition`. `boundary/` decides: conditionals, `unknown`, zod
 and time conversion live there, and it performs no effect either. `effects/`
 perform: try, throw, branch, read the clock and the environment, and name
 `unknown` for what came back; a foreign surface (`effects/**/foreign.ts`)
@@ -265,9 +270,9 @@ subject to a rule.
 `npm run check` runs all four on TypeScript 5.9.3, zod 4.6, ESLint 9, Node
 22: strict `tsc` (plus `exactOptionalPropertyTypes`,
 `noUncheckedIndexedAccess`, `noUnusedLocals`) over the library, the examples
-and the tests; lint; 125 rule fixtures (99 for the domain and primitives
-tiers, 13 for the boundary tier, 11 for the effects and foreign tiers, 2
-for the ETL example), every one of the 82 rules proved by one; no `.d.ts`
+and the tests; lint; 134 rule fixtures (104 for the domain and primitives
+tiers, 15 for the boundary tier, 13 for the effects and foreign tiers, 2
+for the ETL example), every one of the 87 rules proved by one; no `.d.ts`
 under `src`; 28 mutations (19 against the library's gates, 9 against the
 examples'); 56 runtime tests.
 
@@ -398,6 +403,13 @@ typetest; an `as` anywhere but `as const`; a `declare` outside a typetest.
 - Facts are compared with `compare`, never with `===`, which is identity on
   records. Lint cannot see the type of an operand, so a domain `===` on two
   records is review-held until the type-aware rule exists.
+- Two programs pass `tsc` and every tier and still break a guarantee; they
+  are kept in `fixtures/open/` with the layer that closes each. A value
+  with keys its type does not declare, assigned to the narrower type
+  (TypeScript checks excess keys on fresh literals only): the type-aware
+  tier. A domain function performing an effect handed to it as a function
+  parameter: effects as commands, where the domain returns the command and
+  the interpreter in `effects/` performs it.
 - Lint reads syntax. The rules on `Math.random`, `JSON.parse` and the
   `open…` names of evidence readers hold for the forms code takes when it is
   written directly; a global bound to another name (`const D = Date`) or a
