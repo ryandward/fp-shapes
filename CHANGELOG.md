@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.5.5
+
+A fact is built by naming every key.
+
+- Lint: an object spread and an object rest pattern are refused in every
+  tier but foreign. A fresh literal is checked for excess keys and a spread
+  member is not, so a spread is the construction through which keys a type
+  does not declare enter a fact, and the way an old shape travels under a
+  new label. Array spread stays: an array has no keys, and `[...xs, y]`
+  keeps a `NonEmpty` tuple's type where `concat` does not.
+- Lint: the mutating array methods (`push`, `pop`, `shift`, `unshift`,
+  `splice`, `sort`, `reverse`, `fill`, `copyWithin`) are refused in every
+  tier but foreign; a fresh array is typed mutable, so the compiler allowed
+  them.
+- The messages that said "copy with spread" and "build the new value with
+  spread" now say "naming every key"; the previous wording taught the move
+  the rule refuses. The 0.5.3 rule on key order is subsumed.
+- `**/variant.ts` is a primitives tier: the combinators hold the one
+  generic record update (`partition`'s bucket under a type-parameter key).
+- The ingest example's one spread names its fields.
+
 ## 0.5.4
 
 - README: what forces an adoption. Tiers over the whole tree with ESLint's

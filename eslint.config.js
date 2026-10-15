@@ -12,6 +12,7 @@
 //   foreign     **/effects/**/foreign.ts   describe other code as it is
 //   primitives  **/sealed.ts (the one class, the one brand check, the one halt)
 //               **/total.ts (type-level utilities; names `unknown`, `undefined`)
+//               **/variant.ts (the combinators; the one generic record update)
 //   typetests   **/*.typetest.ts      hold the compiler directives, each with a description
 //
 // Recommended on top of this, not verified here: typescript-eslint's
@@ -74,24 +75,35 @@ const rules = {
     rule("VariableDeclaration[kind='let']", 'bind with const; a changing value is a new value'),
     rule("VariableDeclaration[kind='var']", 'bind with const; a changing value is a new value'),
     rule("AssignmentExpression[left.type='Identifier']", 'bind with const; a changing value is a new value'),
-    rule("AssignmentExpression[left.type='MemberExpression']", 'values are frozen; build the new value with spread'),
-    rule('UpdateExpression', 'values are frozen; build the new value with spread'),
-    rule("UnaryExpression[operator='delete']", 'values are frozen; build the new value with spread'),
+    rule("AssignmentExpression[left.type='MemberExpression']", 'values are frozen; build the new value naming every key'),
+    rule('UpdateExpression', 'values are frozen; build the new value naming every key'),
+    rule("UnaryExpression[operator='delete']", 'values are frozen; build the new value naming every key'),
+    rule(
+      "CallExpression[callee.property.name=/^(push|pop|shift|unshift|splice|sort|reverse|fill|copyWithin)$/], CallExpression[callee.property.value=/^(push|pop|shift|unshift|splice|sort|reverse|fill|copyWithin)$/]",
+      'values are frozen; a new array comes from concat, slice, map, filter or a spread',
+    ),
+  ],
+  // A fresh literal is checked for excess keys; a spread member is not, so a
+  // spread is how keys a type does not declare enter a fact, and a rest
+  // pattern is a value of a type nobody declared. Array spread carries no
+  // keys and builds a NonEmpty tuple, so it stays.
+  spreads: [
+    rule('ObjectExpression > SpreadElement', 'a fact names every key: build the value from its fields; a spread carries keys its type does not declare'),
+    rule('ObjectPattern > RestElement', 'a fact names every key: take the fields by name; a rest pattern is a value of a type nobody declared'),
   ],
   laundering: [
     rule(
       "MemberExpression[object.name='Object'][property.name=/^(assign|create|defineProperty|defineProperties|setPrototypeOf)$/]",
-      'copy with spread; a Sealed value comes only from its owner',
+      'copy by naming every key; a Sealed value comes only from its owner',
     ),
     rule("MemberExpression[object.name='Reflect']", 'read fields through the type; a sealed payload is read through its opener'),
-    rule("CallExpression[callee.name='structuredClone']", 'copy with spread; a Sealed value comes only from its owner'),
+    rule("CallExpression[callee.name='structuredClone']", 'copy by naming every key; a Sealed value comes only from its owner'),
     rule("MemberExpression[object.name='JSON'][property.name='parse'], MemberExpression[object.name='JSON'][property.value='parse']", 'text is decoded in effects/ under attempt; unknown enters through a Boundary (src/boundary) and leaves as a fact'),
     rule("MemberExpression[computed=true][property.type='TemplateLiteral']", 'read a field by its name; a key is a name or a string'),
     rule(
       "MemberExpression[object.name='Symbol'][property.name=/^(for|keyFor)$/], MemberExpression[object.name='Symbol'][property.value=/^(for|keyFor)$/]",
       'an authority is minted by its owner with Symbol(…); a registry symbol is anyone who knows the string',
     ),
-    rule('ObjectExpression > Property ~ SpreadElement', 'spread first, then the keys this value sets; a key written before a spread is overridden by it'),
   ],
   // An effect is performed in effects/ and reaches the domain as a parameter
   // or as the fact it produced. What the domain imports from an effects module
@@ -140,7 +152,7 @@ export const except = (...omit) => everything.filter((g) => !omit.includes(g));
 // runtime, so their result carries a type its value did not earn.
 const cloners = ['lodash', 'lodash/*', 'lodash-es', 'lodash-es/*', 'immer', 'rfdc', 'clone', 'clone-deep', 'deepmerge', 'klona', 'klona/*', 'just-clone', 'ramda', 'ramda/*'];
 
-const launder = { group: cloners, message: 'copy with spread; a Sealed value comes only from its owner' };
+const launder = { group: cloners, message: 'copy by naming every key; a Sealed value comes only from its owner' };
 
 export const imports = [
   'error',
@@ -158,7 +170,7 @@ export const imports = [
 export const boundaryImports = ['error', { patterns: [launder] }];
 
 const launders = [
-  { name: 'structuredClone', message: 'copy with spread; a Sealed value comes only from its owner' },
+  { name: 'structuredClone', message: 'copy by naming every key; a Sealed value comes only from its owner' },
   { name: 'Reflect', message: 'read fields through the type; a sealed payload is read through its opener' },
 ];
 
@@ -218,7 +230,7 @@ export default [
   {
     // domain
     files: ['**/*.ts'],
-    ignores: ['**/boundary/**', '**/effects/**', '**/sealed.ts', '**/total.ts', '**/*.typetest.ts', '**/*.test.ts'],
+    ignores: ['**/boundary/**', '**/effects/**', '**/sealed.ts', '**/total.ts', '**/variant.ts', '**/*.typetest.ts', '**/*.test.ts'],
     rules: {
       'no-restricted-syntax': syntax(...everything),
       'no-restricted-imports': imports,
@@ -246,6 +258,17 @@ export default [
     },
   },
   {
+    // primitives: the combinators hold the one generic record update, a
+    // partition's bucket replaced under a key that is a type parameter
+    files: ['**/variant.ts'],
+    rules: {
+      'no-restricted-syntax': syntax(...except('spreads')),
+      'no-restricted-imports': imports,
+      'no-restricted-globals': globals,
+      'local/directives-are-gates': 'error',
+    },
+  },
+  {
     // primitives: type-level utilities name the holes they test for
     files: ['**/total.ts'],
     rules: {
@@ -258,7 +281,7 @@ export default [
     // its predicates, optional methods and thrown classes once each
     files: ['**/effects/**/foreign.ts'],
     rules: {
-      'no-restricted-syntax': syntax(...except('conditionals', 'exceptions', 'loops', 'unknown', 'predicates', 'holes', 'absence', 'sums', 'effects', 'brackets')),
+      'no-restricted-syntax': syntax(...except('conditionals', 'exceptions', 'loops', 'unknown', 'predicates', 'holes', 'absence', 'sums', 'effects', 'brackets', 'spreads')),
       'local/directives-are-gates': 'error',
     },
   },

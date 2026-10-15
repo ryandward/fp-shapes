@@ -204,8 +204,8 @@ Four kinds of check, because the guarantees are of different kinds.
   system describes but the language keeps available, one fixture per rule,
   each declaring the message lint gives for it. Every message states what
   the code here is or what the construct needs ("a branch is a Variant:
-  classify at the boundary, fold here"; "copy with spread; a Sealed value
-  comes only from its owner"), and the type-level check on `boundary`
+  classify at the boundary, fold here"; "copy by naming every key; a Sealed
+  value comes only from its owner"), and the type-level check on `boundary`
   reports as `Needs<"a total output: …">`.
 - **Runtime** (`test/*.test.ts`): what the compiler leaves to the running
   program. `Object.assign({}, sealed)` and `structuredClone(sealed)` compile
@@ -235,13 +235,20 @@ the reading is pinned to the issuer; the performers are not importable, and
 neither are the effects the language offers without an import (`fetch`,
 `process`, `console`, timers, `Date`, `Math.random`, `crypto`, `JSON.parse`,
 dynamic `import`, the global object). A fact is a closed record, read by
-name, not by `['key']`. `boundary/` decides: conditionals, `unknown`, zod
+name, not by `['key']`, and built by naming every key: an object spread or
+rest pattern is refused, since a fresh literal is checked for excess keys
+and a spread member is not, so a spread is how keys a type does not
+declare enter a fact, and how an old shape travels under a new label.
+Array spread stays, since an array has no keys and `[...xs, y]` keeps a
+tuple's type; the mutating array methods (`push`, `sort`, `splice`, …) are
+refused, since a fresh array is typed mutable. `boundary/` decides: conditionals, `unknown`, zod
 and time conversion live there, and it performs no effect either. `effects/`
 perform: try, throw, branch, read the clock and the environment, and name
 `unknown` for what came back; a foreign surface (`effects/**/foreign.ts`)
 describes other code as it is, predicates and optional methods included.
 `src/sealed.ts` holds the one class, the one brand check, and the one halt;
-`src/total.ts` names the holes it tests for. Typetests hold the compiler
+`src/total.ts` names the holes it tests for; `src/variant.ts` holds the
+combinators and the one generic record update. Typetests hold the compiler
 directives, each with a description of the gate it pins.
 
 Not verified here but recommended on top: typescript-eslint
@@ -253,8 +260,8 @@ subject to a rule.
 `npm run check` runs all four on TypeScript 5.9.3, zod 4.6, ESLint 9, Node
 22: strict `tsc` (plus `exactOptionalPropertyTypes`,
 `noUncheckedIndexedAccess`, `noUnusedLocals`) over the library, the examples
-and the tests; lint; 109 rule fixtures (88 for the domain tier, 11 for the
-boundary tier, 8 for the effects tier, 2 for the ETL example); no `.d.ts`
+and the tests; lint; 118 rule fixtures (92 for the domain tier, 13 for the
+boundary tier, 10 for the effects tier, 2 for the ETL example); no `.d.ts`
 under `src`; 28 mutations (19 against the library's gates, 9 against the
 examples'); 56 runtime tests.
 
