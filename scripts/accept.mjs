@@ -174,12 +174,20 @@ const checkExact = (node, valueType, targetType, what) => {
 
 // Methods of a fact: pure, total on their input, returning a fact. The ones
 // that return a boolean are here too; the decision rule refuses them, so
-// that refusal names the reason.
+// that refusal names the reason. Not here: the ones that throw on some
+// input (`with`, `repeat`, `normalize`, `at` and `find`, which answer an
+// absence).
 const factMethods = new Set([
-  'map', 'flatMap', 'filter', 'reduce', 'concat', 'slice', 'join', 'flat', 'toSorted', 'toReversed', 'with', 'entries', 'keys', 'values',
+  'map', 'flatMap', 'filter', 'reduce', 'concat', 'slice', 'join', 'flat', 'toSorted', 'toReversed', 'entries', 'keys', 'values',
   'some', 'every', 'includes', 'startsWith', 'endsWith',
-  'toUpperCase', 'toLowerCase', 'trim', 'trimStart', 'trimEnd', 'padStart', 'padEnd', 'split', 'repeat', 'toString', 'toFixed', 'localeCompare', 'normalize',
+  'toUpperCase', 'toLowerCase', 'trim', 'trimStart', 'trimEnd', 'padStart', 'padEnd', 'split', 'toString', 'toFixed', 'localeCompare',
 ]);
+
+// Methods of a kernel-made record the domain calls, by the record's type.
+// Not here: `Sealed.open` and `Sealed.spend`, since a sealed value is read
+// by its owner and the domain carries it; a step's `resume`, which the
+// interpreter calls; the ledger.
+const kernelMethods = { Algebra: new Set(['done', 'suspend']) };
 
 const aliased = (symbol) => (symbol !== undefined && (symbol.flags & ts.SymbolFlags.Alias) !== 0 ? checker.getAliasedSymbol(symbol) : symbol);
 
@@ -187,6 +195,71 @@ const declarationOf = (symbol) => symbol?.valueDeclaration ?? symbol?.declaratio
 const fileOf = (symbol) => declarationOf(symbol)?.getSourceFile().fileName;
 
 const isFact = (type) => isArray(type) || flags(type, ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BigIntLike);
+
+// The name a type was declared under in the kernel, through a domain alias
+// of it (`type Hold = Sealed<…>` is a Sealed), or null.
+const kernelName = (type) => {
+  const owner = [type.aliasSymbol, type.symbol].find((s) => s !== undefined && inKernel(fileOf(s)));
+  return owner === undefined ? null : owner.getName();
+};
+
+// A fact has no functions: a parameter's type, all the way down, holds no
+// call or construct signature, no accessor, and nothing undecided. A step
+// and a sealed value are the kernel values the domain holds without
+// reading; each keeps a function inside (the step's resumption, the
+// seal's invariance witness) that the domain cannot call.
+const carried = new Set(['Step', 'Erased', 'Sealed']);
+const improper = (type, seen = new Set()) => {
+  if (seen.has(type)) return null;
+  seen.add(type);
+  if (undecidable(type)) return 'is not decided (any, unknown, or a type parameter)';
+  if (carried.has(kernelName(type))) return null;
+  if (type.getCallSignatures().length > 0 || type.getConstructSignatures().length > 0) return 'holds a function';
+  if (type.isUnion() || type.isIntersection()) {
+    for (const member of type.types) {
+      const why = improper(member, seen);
+      if (why !== null) return why;
+    }
+    return null;
+  }
+  if (isArray(type)) {
+    for (const element of checker.getTypeArguments(type)) {
+      const why = improper(element, seen);
+      if (why !== null) return why;
+    }
+    return null;
+  }
+  if (!flags(type, ts.TypeFlags.Object)) return null;
+  for (const property of type.getProperties()) {
+    if ((property.flags & (ts.SymbolFlags.GetAccessor | ts.SymbolFlags.SetAccessor)) !== 0) return `holds an accessor (${property.getName()}), which runs when read`;
+    if ((property.flags & ts.SymbolFlags.Method) !== 0) return `holds a method (${property.getName()})`;
+    const why = improper(checker.getTypeOfSymbol(property), seen);
+    if (why !== null) return why;
+  }
+  return null;
+};
+
+// Declared by the language, the runtime or a package: not a fact, not the
+// kernel, not the domain.
+const foreign = (symbol) => {
+  const decl = declarationOf(symbol);
+  if (decl === undefined) return false;
+  const file = decl.getSourceFile();
+  return program.isSourceFileDefaultLibrary(file) || file.fileName.includes(`${sep}node_modules${sep}`);
+};
+
+// The symbol an expression's object comes from, through parentheses,
+// property reads and const bindings: `D.now` where `const D = Date` is Date.
+const rootOf = (expression, seen = new Set()) => {
+  if (ts.isParenthesizedExpression(expression) || ts.isPropertyAccessExpression(expression)) return rootOf(expression.expression, seen);
+  if (!ts.isIdentifier(expression)) return undefined;
+  const symbol = aliased(checker.getSymbolAtLocation(expression));
+  if (symbol === undefined || seen.has(symbol)) return symbol;
+  seen.add(symbol);
+  const decl = declarationOf(symbol);
+  if (decl !== undefined && ts.isVariableDeclaration(decl) && decl.initializer !== undefined && !ts.isCallExpression(decl.initializer)) return rootOf(decl.initializer, seen) ?? symbol;
+  return symbol;
+};
 
 // Where a callee comes from: 'kernel', 'domain', 'parameter', or a sentence
 // saying why the call is refused.
@@ -197,10 +270,20 @@ const origin = (callee, seen = new Set()) => {
     const objectType = checker.getTypeAtLocation(callee.expression);
     const property = aliased(checker.getSymbolAtLocation(callee.name));
     const file = fileOf(property);
-    if (kernelShell(file)) return `${callee.name.text} is the shell's: the ledger and the attempt belong to effects/`;
-    if (inKernel(file)) return 'kernel';
-    if (checker.typeToString(objectType) === 'Math') return callee.name.text === 'random' ? 'Math.random is an effect' : 'kernel';
-    if (isFact(objectType)) return factMethods.has(callee.name.text) ? 'kernel' : `${callee.name.text} is not a method of a fact the domain calls`;
+    const name = callee.name.text;
+    if (kernelShell(file)) return `${name} is the shell's: the ledger and the attempt belong to effects/`;
+    if (inKernel(file)) {
+      if (kernelMethods[kernelName(objectType) ?? '']?.has(name)) return 'kernel';
+      if (objectType.symbol?.getName() === 'Sealed') return `a sealed value is read by its owner; the domain carries it, and the payload it needs arrives beside it as a fact`;
+      return `${name} is the kernel's own: not a method the domain calls`;
+    }
+    if (checker.typeToString(objectType) === 'Math') return name === 'random' ? 'Math.random is an effect' : 'kernel';
+    if (isFact(objectType)) return factMethods.has(name) ? 'kernel' : `${name} is not a method of a fact the domain calls`;
+    const root = rootOf(callee.expression);
+    if (foreign(root)) return `${callee.expression.getText()} is a global or a package, not a fact, the kernel or the domain`;
+    // a record of functions the domain declared, called by name: a namespace
+    const declaration = declarationOf(property);
+    if (declaration !== undefined && ts.isPropertyAssignment(declaration) && isDomainFile(declaration.getSourceFile().fileName) && (ts.isArrowFunction(declaration.initializer) || ts.isFunctionExpression(declaration.initializer))) return 'domain';
     return `a function read from a value (${checker.typeToString(objectType)}) is not called: a fact has no functions, and a record with one is an effect`;
   }
   if (!ts.isIdentifier(callee)) return 'a callee is a name, a method of a fact, or the result of a kernel call';
@@ -214,7 +297,7 @@ const origin = (callee, seen = new Set()) => {
   const file = decl.getSourceFile().fileName;
   if (kernelShell(file)) return `${callee.text} is the shell's: the ledger and the attempt belong to effects/`;
   if (inKernel(file)) return 'kernel';
-  if (file.includes(`${sep}node_modules${sep}`) || program.isSourceFileDefaultLibrary(decl.getSourceFile())) return `${callee.text} is a global or a package, not a fact, the kernel or the domain`;
+  if (foreign(symbol)) return `${callee.text} is a global or a package, not a fact, the kernel or the domain`;
   if (!isDomainFile(file)) return `${callee.text} is declared in ${relative(process.cwd(), file)}, which is not a domain module`;
   if (ts.isFunctionDeclaration(decl)) return 'domain';
   if (ts.isVariableDeclaration(decl)) {
@@ -309,8 +392,10 @@ const walkExpression = (node) => {
       return;
     case ts.SyntaxKind.ObjectLiteralExpression:
       for (const property of node.properties) {
-        if (ts.isPropertyAssignment(property) && !ts.isComputedPropertyName(property.name)) walkExpression(property.initializer);
-        else if (ts.isShorthandPropertyAssignment(property)) reach(checker.getShorthandAssignmentValueSymbol(property));
+        if (ts.isPropertyAssignment(property) && !ts.isComputedPropertyName(property.name)) {
+          if (property.name.getText().replace(/^['"]|['"]$/g, '') === '__proto__') refuse(property, 'grammar', 'a record has no prototype to set; a fact is its keys');
+          walkExpression(property.initializer);
+        } else if (ts.isShorthandPropertyAssignment(property)) reach(checker.getShorthandAssignmentValueSymbol(property));
         else refuse(property, 'grammar', `${ts.SyntaxKind[property.kind]} in a record is not a form of the domain; a fact names every key with a value`);
       }
       return;
@@ -351,12 +436,31 @@ const walkCall = (call) => {
   for (const argument of call.arguments) walkExpression(argument);
 };
 
+// The return type an unannotated function is held to: the one its context
+// declares (a handler's, an arm's), when that is decided. A callee's own
+// inference variable is not a declared type; the value is checked where
+// it next meets one.
+const contextualReturn = (fn) => {
+  const contextual = checker.getContextualType(fn);
+  if (contextual === undefined) return null;
+  const signatures = contextual.getCallSignatures();
+  if (signatures.length !== 1) return null;
+  const returned = signatures[0].getReturnType();
+  return undecidable(returned) ? null : returned;
+};
+
 const walkFunction = (fn) => {
+  const modifiers = ts.canHaveModifiers(fn) ? (ts.getModifiers(fn) ?? []) : [];
+  if (modifiers.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) || fn.asteriskToken !== undefined) refuse(fn, 'grammar', 'an async or generator function is a process; the domain returns a step and the interpreter runs it');
   for (const param of fn.parameters) {
-    // Annotated, or typed by the callee it is passed to; either way decided.
-    if (undecidable(checker.getTypeAtLocation(param.name))) refuse(param, 'closed', `the type of ${param.name.getText()} is not decided (any, unknown, or a type parameter); the domain is written in declared types`);
+    if (param.initializer !== undefined) refuse(param, 'grammar', 'a parameter has no default; an absence is decided at the boundary');
+    if (param.questionToken !== undefined) refuse(param, 'grammar', 'a parameter is not optional; an absence is decided at the boundary');
+    // Annotated, or typed by the callee it is passed to; either way decided,
+    // and a fact all the way down.
+    const why = improper(checker.getTypeAtLocation(param.name));
+    if (why !== null) refuse(param, why.startsWith('is not decided') ? 'closed' : 'purity', `the type of ${param.name.getText()} ${why}; a fact has no functions, and an effect reaches the domain as data`);
   }
-  const returnType = fn.type === undefined ? null : checker.getTypeFromTypeNode(fn.type);
+  const returnType = fn.type === undefined ? contextualReturn(fn) : checker.getTypeFromTypeNode(fn.type);
   const body = fn.body;
   if (body === undefined) return;
   if (!ts.isBlock(body)) {
@@ -394,11 +498,20 @@ const walkVariables = (statement) => {
 };
 
 const walkFile = (file) => {
+  // tsc's types are what the rules read; a directive that silences tsc
+  // silences them.
+  const directive = file.text.match(/@ts-(ignore|expect-error|nocheck)/);
+  if (directive !== null) refuse(file, 'closed', `a ${directive[0]} directive silences the checker the rules read; a gate belongs in a typetest`);
   for (const statement of file.statements) {
     if (ts.isImportDeclaration(statement)) {
       const source = statement.moduleSpecifier.getText().slice(1, -1);
-      const typeOnly = statement.importClause?.isTypeOnly === true;
-      if (!typeOnly && /(^|\/)effects\//.test(source)) refuse(statement, 'purity', 'nothing of an effects module is imported by value; an effect reaches the domain as data');
+      const clause = statement.importClause;
+      const bindings = clause?.namedBindings;
+      const byValue =
+        clause !== undefined &&
+        clause.isTypeOnly !== true &&
+        (clause.name !== undefined || (bindings !== undefined && (ts.isNamespaceImport(bindings) || bindings.elements.some((e) => e.isTypeOnly !== true))));
+      if (byValue && /(^|\/)effects\//.test(source)) refuse(statement, 'purity', 'nothing of an effects module is imported by value; an effect reaches the domain as data');
       continue;
     }
     if (ts.isTypeAliasDeclaration(statement) || ts.isInterfaceDeclaration(statement)) continue;
