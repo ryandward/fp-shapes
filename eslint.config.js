@@ -7,7 +7,8 @@
 //
 //   domain      everything not listed below: data, folds, owner-issued values
 //   boundary    **/boundary/**        decides; uses ??, ?., unknown, and zod
-//   effects     **/effects/**         try/throw/branch around I/O; name unknown
+//   effects     **/effects/**         perform I/O: try/throw/branch, the clock, the
+//                                     environment, timers; name unknown
 //   foreign     **/effects/**/foreign.ts   describe other code as it is
 //   primitives  **/sealed.ts (the one class, the one brand check, the one halt)
 //               **/total.ts (type-level utilities; names `unknown`, `undefined`)
@@ -84,7 +85,31 @@ const rules = {
     ),
     rule("MemberExpression[object.name='Reflect']", 'read fields through the type; a sealed payload is read through its opener'),
     rule("CallExpression[callee.name='structuredClone']", 'copy with spread; a Sealed value comes only from its owner'),
+    rule("MemberExpression[object.name='JSON'][property.name='parse'], MemberExpression[object.name='JSON'][property.value='parse']", 'text is decoded in effects/ under attempt; unknown enters through a Boundary (src/boundary) and leaves as a fact'),
+    rule("MemberExpression[computed=true][property.type='TemplateLiteral']", 'read a field by its name; a key is a name or a string'),
   ],
+  // An effect is performed in effects/ and reaches the domain as a parameter
+  // or as the fact it produced. What the domain imports from an effects module
+  // is a reader of the evidence that module issues, named open…, so the
+  // reading is pinned to the issuer; the performers are parameters.
+  effects: [
+    rule(
+      "ImportDeclaration[importKind!='type'][source.value=/(^|\\/)effects\\//] > ImportSpecifier[importKind!='type'][imported.name!=/^open/]",
+      'an effect runs in effects/ and reaches here as a parameter; a reader of its evidence is named open…',
+    ),
+    rule("ImportDeclaration[source.value=/(^|\\/)effects\\//] > ImportDefaultSpecifier", 'an effect runs in effects/ and reaches here as a parameter; a reader of its evidence is named open…'),
+    rule("ImportDeclaration[source.value=/(^|\\/)effects\\//] > ImportNamespaceSpecifier", 'an effect runs in effects/ and reaches here as a parameter; a reader of its evidence is named open…'),
+    rule(
+      "ExportNamedDeclaration[exportKind!='type'][source.value=/(^|\\/)effects\\//] > ExportSpecifier[exportKind!='type'][local.name!=/^open/]",
+      'an effect runs in effects/ and reaches here as a parameter; a reader of its evidence is named open…',
+    ),
+    rule("ExportAllDeclaration[source.value=/(^|\\/)effects\\//]", 'an effect runs in effects/ and reaches here as a parameter; a reader of its evidence is named open…'),
+    rule('ImportExpression', 'a module names its imports at the top'),
+    rule("CallExpression[callee.object.name='Date'][callee.property.name='now'], CallExpression[callee.object.name='Date'][callee.property.value='now']", 'the time is read in effects/ and passed in as a fact'),
+    rule("NewExpression[callee.name='Date'][arguments.length=0]", 'the time is read in effects/ and passed in as a fact'),
+    rule("MemberExpression[object.name='Math'][property.name='random'], MemberExpression[object.name='Math'][property.value='random']", 'a random value is drawn in effects/ and passed in as a fact'),
+  ],
+  brackets: [rule("MemberExpression[computed=true][property.type='Literal']", 'read a field by its name; a fact here is a closed record')],
 };
 
 const imports_name_their_file = [
@@ -98,7 +123,7 @@ export const syntax = (...groups) => ['error', ...imports_name_their_file, ...gr
 // Flat config replaces a rule's setting per config object; it does not merge.
 // A host that already restricts syntax, imports or globals composes its own
 // entries with these, or the tiers replace them inside the tiered directories:
-//   import { rules, syntax, imports, globals } from './fp-shapes/eslint.config.js';
+//   import { rules, syntax, imports, boundaryImports, globals, boundaryGlobals, effectsGlobals } from './fp-shapes/eslint.config.js';
 //   { files: [...], rules: { 'no-restricted-syntax': [...syntax(...everything), ...mine] } }
 export { rules };
 
@@ -109,18 +134,47 @@ export const except = (...omit) => everything.filter((g) => !omit.includes(g));
 // runtime, so their result carries a type its value did not earn.
 const cloners = ['lodash', 'lodash/*', 'lodash-es', 'lodash-es/*', 'immer', 'rfdc', 'clone', 'clone-deep', 'deepmerge', 'klona', 'klona/*', 'just-clone', 'ramda', 'ramda/*'];
 
+const launder = { group: cloners, message: 'copy with spread; a Sealed value comes only from its owner' };
+
 export const imports = [
   'error',
   {
     patterns: [
       { group: ['zod', 'zod/*'], message: 'parse in a boundary module; import the fact type here' },
-      { group: cloners, message: 'copy with spread; a Sealed value comes only from its owner' },
+      launder,
       { group: ['**/boundary/*', '**/boundary/**'], importNamePattern: '^parse', message: 'take the parsed fact as a parameter; parsing happens in a boundary module' },
     ],
   },
 ];
 
-export const globals = ['error', { name: 'structuredClone', message: 'copy with spread; a Sealed value comes only from its owner' }, { name: 'Reflect', message: 'read fields through the type; a sealed payload is read through its opener' }];
+// A boundary module parses, so it imports zod and other parsers; it can own a
+// sealed fact, so it does not import a cloner.
+export const boundaryImports = ['error', { patterns: [launder] }];
+
+const launders = [
+  { name: 'structuredClone', message: 'copy with spread; a Sealed value comes only from its owner' },
+  { name: 'Reflect', message: 'read fields through the type; a sealed payload is read through its opener' },
+];
+
+// Effects the language offers without an import. Each is performed in
+// effects/ and reaches the domain and the boundary as a fact.
+const ambient = [
+  ...['fetch', 'XMLHttpRequest', 'WebSocket'].map((name) => ({ name, message: 'an effect runs in effects/ and its outcome reaches here as a fact' })),
+  { name: 'process', message: 'the environment is read in effects/ and parsed at the boundary' },
+  { name: 'console', message: 'a line is written in effects/; return the fact to log' },
+  ...['setTimeout', 'setInterval', 'setImmediate', 'queueMicrotask'].map((name) => ({ name, message: 'a delay is scheduled in effects/; a wait is a fact to fold' })),
+  { name: 'performance', message: 'the time is read in effects/ and passed in as a fact' },
+  { name: 'crypto', message: 'a random value is drawn in effects/ and passed in as a fact' },
+  ...['globalThis', 'window', 'global', 'self'].map((name) => ({ name, message: 'name what this module uses; the global object is not a value here' })),
+  ...['require', 'module'].map((name) => ({ name, message: 'a module names its imports at the top' })),
+  ...['eval', 'Function'].map((name) => ({ name, message: 'code here is written, not built from text' })),
+];
+
+// The domain holds time as a fact (a number or an ISO string); converting one
+// is a boundary job, so `Date` is a name only there and in effects/.
+export const globals = ['error', ...launders, ...ambient, { name: 'Date', message: 'time is a fact: a number or an ISO string, parsed at the boundary; the clock is read in effects/' }];
+export const boundaryGlobals = ['error', ...launders, ...ambient];
+export const effectsGlobals = ['error', ...launders];
 
 // A compiler directive lives in a typetest, where it is a gate with a description.
 const local = {
@@ -171,8 +225,9 @@ export default [
     files: ['**/boundary/**/*.ts'],
     ignores: ['**/*.test.ts'],
     rules: {
-      'no-restricted-syntax': syntax(...except('conditionals', 'unknown', 'predicates')),
-      'no-restricted-globals': globals,
+      'no-restricted-syntax': syntax(...except('conditionals', 'unknown', 'predicates', 'brackets')),
+      'no-restricted-imports': boundaryImports,
+      'no-restricted-globals': boundaryGlobals,
       'local/directives-are-gates': 'error',
     },
   },
@@ -180,7 +235,7 @@ export default [
     // primitives: the one class has its constructor, its ternary and its halt
     files: ['**/sealed.ts'],
     rules: {
-      'no-restricted-syntax': syntax(...except('conditionals', 'exceptions', 'classes', 'mutation')),
+      'no-restricted-syntax': syntax(...except('conditionals', 'exceptions', 'classes', 'mutation', 'brackets')),
       'local/directives-are-gates': 'error',
     },
   },
@@ -197,7 +252,7 @@ export default [
     // its predicates, optional methods and thrown classes once each
     files: ['**/effects/**/foreign.ts'],
     rules: {
-      'no-restricted-syntax': syntax(...except('conditionals', 'exceptions', 'loops', 'unknown', 'predicates', 'holes', 'absence', 'sums')),
+      'no-restricted-syntax': syntax(...except('conditionals', 'exceptions', 'loops', 'unknown', 'predicates', 'holes', 'absence', 'sums', 'effects', 'brackets')),
       'local/directives-are-gates': 'error',
     },
   },
@@ -206,9 +261,9 @@ export default [
     files: ['**/effects/**/*.ts'],
     ignores: ['**/effects/**/foreign.ts', '**/*.test.ts'],
     rules: {
-      'no-restricted-syntax': syntax(...except('conditionals', 'exceptions', 'loops', 'unknown')),
+      'no-restricted-syntax': syntax(...except('conditionals', 'exceptions', 'loops', 'unknown', 'effects', 'brackets')),
       'no-restricted-imports': imports,
-      'no-restricted-globals': globals,
+      'no-restricted-globals': effectsGlobals,
       'local/directives-are-gates': 'error',
     },
   },

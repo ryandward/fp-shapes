@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.4.7
+
+The domain performs no effect, by lint rather than by layout.
+
+- Domain and boundary tiers: an import from an `effects/` module is refused
+  unless it is type-only or a reader named `open…`, and so are default and
+  namespace imports from one, value re-exports of one, and dynamic
+  `import()`. A performer reaches the domain as a parameter; a reader of an
+  effect's evidence is pinned to the issuer that owns its authority.
+- Domain and boundary tiers: the effects the language offers without an
+  import are globals the tiers refuse (`fetch`, `XMLHttpRequest`,
+  `WebSocket`, `process`, `console`, `setTimeout`, `setInterval`,
+  `setImmediate`, `queueMicrotask`, `performance`, `crypto`, `globalThis`,
+  `window`, `global`, `self`, `require`, `module`, `eval`, `Function`), as
+  are `Date.now()`, `new Date()` and `Math.random`. The domain refuses
+  `Date` altogether; time is a number or an ISO string there, and the
+  boundary converts.
+- `JSON.parse` joins the laundering group: its `any` lands in a typed
+  binding with no assertion. Text is decoded in `effects/` under `attempt`.
+- Domain tier: a key is read by name, not by `['key']`; a template-literal
+  key is refused in every tier but foreign.
+- `attempt` is no longer re-exported by `src/index.ts`; effects modules
+  import it from `src/effects/attempt.ts` (also the package's
+  `./effects/attempt` export), so the path rule covers it.
+- Boundary tier: `boundaryImports` (cloners refused; zod and parsers
+  allowed). Globals per tier: `globals` (domain), `boundaryGlobals`,
+  `effectsGlobals`.
+- `eslint.examples.js` composed its import rules over the library's instead
+  of replacing them; a zod import in an ETL domain file passed before.
+- Fixtures for the boundary tier (`fixtures/rules/boundary`) and the effects
+  tier (`fixtures/rules/effects`), run by `lint:fixtures`; 105 in all.
+
 ## 0.4.6
 
 Findings from vendoring the lint config and the mutation runner into a host

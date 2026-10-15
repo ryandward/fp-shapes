@@ -10,5 +10,6 @@ export { boundary } from './boundary/boundary.js';
 export type { Boundary, Issue, Parse, TotalSchema } from './boundary/boundary.js';
 export { occupancy } from './boundary/evidence.js';
 export type { Occupancy } from './boundary/evidence.js';
-export { attempt } from './effects/attempt.js';
+// `attempt` is imported from './effects/attempt.js' by effects modules; the
+// index carries shapes, and the domain tier refuses an import from effects/.
 export type { Outcome, Tried } from './effects/attempt.js';

@@ -1,6 +1,6 @@
 {
   "name": "fp-shapes",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "check:gates": "node scripts/mutations.mjs src/gates.mutations.mjs examples/etl/gates.mutations.mjs examples/ingest/gates.mutations.mjs",
     "lint": "eslint src && eslint -c eslint.examples.js --ignore-pattern '**/fixtures/**' examples",
-    "lint:fixtures": "node scripts/lint-fixtures.mjs && node scripts/lint-fixtures.mjs examples/etl/fixtures/rules eslint.examples.js",
+    "lint:fixtures": "node scripts/lint-fixtures.mjs && node scripts/lint-fixtures.mjs fixtures/rules/boundary && node scripts/lint-fixtures.mjs fixtures/rules/effects && node scripts/lint-fixtures.mjs examples/etl/fixtures/rules eslint.examples.js",
     "check:dts": "test -z \"$(find src -name '*.d.ts')\" || (echo 'src holds compiled modules only; an ambient declaration belongs in a *.typetest.ts' && exit 1)",
     "test": "tsx --test 'test/*.test.ts' 'examples/**/*.test.ts'"
   },
@@ -32,6 +32,7 @@
     "CHANGELOG.md"
   ],
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./effects/attempt": "./src/effects/attempt.ts"
   }
 }

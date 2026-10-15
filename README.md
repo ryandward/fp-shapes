@@ -69,7 +69,8 @@ is the only one in force, so a host's own restrictions and the tier's
 restrictions reach a file together only when one list is composed from
 both. The config exports its pieces for that: `rules` (the groups), `syntax`
 (`'error'` plus the import rule plus the named groups), `everything`,
-`except`, `imports` and `globals`.
+`except`, and per tier `imports` / `boundaryImports` and `globals` /
+`boundaryGlobals` / `effectsGlobals`.
 
 ```js
 import fp, { syntax, everything, imports, globals } from './fp-shapes/eslint.config.js';
@@ -90,7 +91,8 @@ vendored `fixtures/`, which break one rule each on purpose; `node
 fp-shapes/scripts/lint-fixtures.mjs fp-shapes/fixtures/rules eslint.config.js`
 lints them through the host's config regardless of that ignore and fails
 when a rule no longer fires there, which is the check that the composition
-and the host's ESLint version kept every rule.
+and the host's ESLint version kept every rule; `fixtures/rules/boundary`
+and `fixtures/rules/effects` do the same for those tiers.
 
 The mutation runner takes the library's own list from wherever the library
 was vendored: `node fp-shapes/scripts/mutations.mjs
@@ -120,7 +122,7 @@ file outside the copied directories names a file the scratch tree lacks).
 | `Immutable<T>` | `src/total.ts` | every property readonly, every array a `ReadonlyArray`, all the way down; recursion answers `Recursive<T>` | mutable schema outputs |
 | `Exact<A, B>` | `src/total.ts` | correspondence: both total, same keys, mutually assignable | a key-set comparison at one level |
 | `Boundary<F>`, `Parse<F>`, `boundary`, `TotalSchema` | `src/boundary/boundary.ts` | the only shape that accepts `unknown`; a boundary schema has a total, readonly output, checked at the definition | ad-hoc parsing; `JSON.parse as T`; per-schema assertions |
-| `Outcome<T>`, `Tried<T>`, `attempt` | `src/effects/attempt.ts` | the one `try`; a thrown value becomes a case at the effect boundary | `try` in the domain; `void` effects |
+| `Outcome<T>`, `Tried<T>`, `attempt` | `src/effects/attempt.ts` | the one `try`; a thrown value becomes a case at the effect boundary. `attempt` is imported from this file by effects modules; the index carries the types | `try` in the domain; `void` effects |
 | `Assert`, `Equal` | `src/total.ts` | compile-time assertions | — |
 
 Common utilities the library does without, and why. `StrictOmit` and
@@ -176,14 +178,21 @@ Four kinds of check, because the guarantees are of different kinds.
   the same runner.
 
 The tiers, by path segment. The domain is data, folds, and owner-issued
-values. `boundary/` decides: conditionals, `unknown`, and zod live there.
-`effects/` try, throw, branch,
-and name `unknown` for what came back; a foreign surface
-(`effects/**/foreign.ts`) describes other code as it is, predicates and
-optional methods included. `src/sealed.ts` holds the one class, the one
-brand check, and the one halt; `src/total.ts` names the holes it tests for.
-Typetests hold the compiler directives, each with a description of the gate
-it pins.
+values, and performs no effect: an effect reaches it as a parameter or as
+the fact it produced. What a domain module imports from an `effects/`
+module is a reader of the evidence that module issues, named `open…`, so
+the reading is pinned to the issuer; the performers are not importable, and
+neither are the effects the language offers without an import (`fetch`,
+`process`, `console`, timers, `Date`, `Math.random`, `crypto`, `JSON.parse`,
+dynamic `import`, the global object). A fact is a closed record, read by
+name, not by `['key']`. `boundary/` decides: conditionals, `unknown`, zod
+and time conversion live there, and it performs no effect either. `effects/`
+perform: try, throw, branch, read the clock and the environment, and name
+`unknown` for what came back; a foreign surface (`effects/**/foreign.ts`)
+describes other code as it is, predicates and optional methods included.
+`src/sealed.ts` holds the one class, the one brand check, and the one halt;
+`src/total.ts` names the holes it tests for. Typetests hold the compiler
+directives, each with a description of the gate it pins.
 
 Not verified here but recommended on top: typescript-eslint
 `recommendedTypeChecked` (the `no-unsafe-*` rules that track `any` out of
@@ -194,8 +203,10 @@ subject to a rule.
 `npm run check` runs all four on TypeScript 5.9.3, zod 4.6, ESLint 9, Node
 22: strict `tsc` (plus `exactOptionalPropertyTypes`,
 `noUncheckedIndexedAccess`, `noUnusedLocals`) over the library, the examples
-and the tests; lint; 54 rule fixtures (52 for the library, 2 for the ETL example); no `.d.ts` under `src`; 21 mutations
-(12 against the library's gates, 9 against the examples'); 46 runtime tests.
+and the tests; lint; 105 rule fixtures (84 for the domain tier, 11 for the
+boundary tier, 8 for the effects tier, 2 for the ETL example); no `.d.ts`
+under `src`; 21 mutations (12 against the library's gates, 9 against the
+examples'); 46 runtime tests.
 
 ## Examples
 
@@ -306,3 +317,9 @@ typetest; an `as` anywhere but `as const`; a `declare` outside a typetest.
   subject (batch id, row id) inside the sealed payload and have the owner's
   opener take the expected id. Single consumption is a runtime fact: in ETL
   it is the idempotency key at the load effect.
+- Lint reads syntax. The rules on `Math.random`, `JSON.parse` and the
+  `open…` names of evidence readers hold for the forms code takes when it is
+  written directly; a global bound to another name (`const D = Date`) or a
+  performer named `open…` is visible for what it is in review, and
+  typescript-eslint's type-aware rules are the next hold (`recommendedTypeChecked`
+  refuses the `any` that `JSON.parse` returns wherever it lands).
