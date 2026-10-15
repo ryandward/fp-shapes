@@ -53,7 +53,7 @@ acquired twice. See the header of `src/program.ts` for a worked example.
 
 | File | Contents |
 |---|---|
-| `src/union.ts` | `Union`, `match`, `Option`, `Result`, `tryCatch`, `NonEmptyArray` |
+| `src/union.ts` | `Union`, `match`, `Option`, `Result`, `NonEmptyArray` |
 | `src/opaque.ts` | `Opaque` |
 | `src/freeze.ts` | `deepFreeze` |
 | `src/types.ts` | `IsComplete`, `IsDeepReadonly`, `Recursive`, `Equal`, `Expect` |
