@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.11
+
+- `GUARANTEES.md`: the reviewer's map. The three kinds of evidence and
+  what "proof" means here; where zod sits (four properties assumed,
+  narrowed by lint, tested at runtime); every anti-pattern refused today
+  with the tier, the mechanism and the artifact; and the list of what the
+  contract refuses that the build does not yet.
+
 ## 0.5.10
 
 K1 and K2 made true as implemented, not as described.

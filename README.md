@@ -105,14 +105,17 @@ application's list names every directory its staged program reads,
 declarations included, and the tsconfig stands alone (one that `extends` a
 file outside the copied directories names a file the scratch tree lacks).
 
-## The contract
+## The contract, and what holds it
 
 `SPEC.md` states what "accepted by fp-shapes" means as the rules a checker
 enforces (exact facts preserved through every step, `fold` as the one
 eliminator, domain functions with no effects, linear evidence consumed
 exactly once) and the contracts the kernel keeps, and says which rules the
-tiers and gates hold today and which the checker will. The command algebra
-and the checker are built against it, in that order.
+tiers and gates hold today and which the checker will. `GUARANTEES.md` is
+the reviewer's map: each anti-pattern, the mechanism that refuses it, the
+gate, mutation, fixture or test that shows the mechanism works, where zod
+sits in the trusted base, and what is still open. The command algebra and
+the checker are built against the contract, in that order.
 
 ## Adopting in an existing codebase
 
