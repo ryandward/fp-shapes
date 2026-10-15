@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.3
+
+- Lint: a key written before a spread in the same object literal is refused
+  in every tier but foreign; the spread overrides it. Spread first, then the
+  keys the value sets. Spread remains the one copy: it cannot produce a
+  sealed value (the `copied` gate), and a plain record is data.
+
 ## 0.5.2
 
 - `Total`, `Immutable`, `Recursive` and `Deep` read a sealed value through

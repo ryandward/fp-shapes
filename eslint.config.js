@@ -91,6 +91,7 @@ const rules = {
       "MemberExpression[object.name='Symbol'][property.name=/^(for|keyFor)$/], MemberExpression[object.name='Symbol'][property.value=/^(for|keyFor)$/]",
       'an authority is minted by its owner with Symbol(…); a registry symbol is anyone who knows the string',
     ),
+    rule('ObjectExpression > Property ~ SpreadElement', 'spread first, then the keys this value sets; a key written before a spread is overridden by it'),
   ],
   // An effect is performed in effects/ and reaches the domain as a parameter
   // or as the fact it produced. What the domain imports from an effects module

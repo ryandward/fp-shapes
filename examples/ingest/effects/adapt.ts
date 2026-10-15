@@ -97,7 +97,7 @@ export const adapt = (foreign: Foreign): Effects => {
       source.fetch(request.uri, request.destKey, {
         signal: request.signal,
         onProgress: (metrics) => {
-          void foreign.publishTransfer(request.fileId, request.lock, { stage: 'transferring', ...metrics });
+          void foreign.publishTransfer(request.fileId, request.lock, { ...metrics, stage: 'transferring' });
         },
       }),
     );

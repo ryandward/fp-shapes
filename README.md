@@ -234,7 +234,7 @@ subject to a rule.
 `npm run check` runs all four on TypeScript 5.9.3, zod 4.6, ESLint 9, Node
 22: strict `tsc` (plus `exactOptionalPropertyTypes`,
 `noUncheckedIndexedAccess`, `noUnusedLocals`) over the library, the examples
-and the tests; lint; 107 rule fixtures (86 for the domain tier, 11 for the
+and the tests; lint; 109 rule fixtures (88 for the domain tier, 11 for the
 boundary tier, 8 for the effects tier, 2 for the ETL example); no `.d.ts`
 under `src`; 28 mutations (19 against the library's gates, 9 against the
 examples'); 56 runtime tests.
