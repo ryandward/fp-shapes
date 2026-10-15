@@ -21,11 +21,8 @@
 // reader that consumes it: a receipt that settles a batch, a fence that is
 // finalized. The type keeps `open` off spent evidence and `spend` off held
 // evidence; the spent set keeps a second `spend` from returning, whatever
-// route the value took to get there. That set is the library's first piece
-// of runtime state: a WeakSet of consumed values, written once each. The
-// readers at the end of this file, for a generated FFI, use the same set
-// and add registries: what the shell minted for a core, read back by the
-// identity it was minted as.
+// route the value took to get there. That set is the library's one piece of
+// runtime state: a WeakSet of consumed values, written once each.
 //
 // The readers return the payload by reference, so the payload is frozen when
 // it is sealed, all the way down: every object and array reachable from it,
@@ -111,51 +108,6 @@ export class Sealed<Tag extends symbol, T extends object, U extends Use = 'open'
     return x.#same(x.#value);
   }
 }
-
-// The readers a generated FFI uses (scripts/koka-gen.mjs) for values the core
-// holds opaquely: a receipt is spent once, whatever route it took, through the
-// same spent set `Sealed.spend` keeps; a registry keeps what the shell minted
-// under the identity of the value it minted it as, so a value the shell did
-// not mint, whatever its shape, is read as a defect. Each value is minted for
-// an owner, the attempt it was issued to, and the registry answers for an
-// owner what it minted that was never spent: the ownership audit a run reads
-// at every terminal, whether it finished or halted.
-export const spendOnce = <T extends object>(value: T): T => {
-  if (spent.has(value)) return defect('a receipt is spent once; this one was');
-  spent.add(value);
-  return value;
-};
-
-export type Registry<V extends object> = {
-  readonly mint: <K extends object>(key: K, value: V, owner: object) => K;
-  readonly read: (key: object) => V;
-  readonly outstanding: (owner: object) => ReadonlyArray<V>;
-};
-
-export const registry = <V extends object>(what: string): Registry<V> => {
-  const minted = new WeakMap<object, V>();
-  const owned = new WeakMap<object, Set<object>>();
-  return {
-    mint: (key, value, owner) => {
-      minted.set(key, frozen(value));
-      const keys = owned.get(owner) ?? new Set<object>();
-      keys.add(key);
-      owned.set(owner, keys);
-      return key;
-    },
-    read: (key) => {
-      const value = minted.get(key);
-      return value === undefined ? defect(`${what}: a value the shell did not mint; a receipt is read only from the registry it was minted into`) : value;
-    },
-    outstanding: (owner) =>
-      Object.freeze(
-        [...(owned.get(owner) ?? [])].flatMap((key) => {
-          const value = minted.get(key);
-          return spent.has(key) || value === undefined ? [] : [value];
-        }),
-      ),
-  };
-};
 
 // A decision: facts in, a sealed verdict out. The authority token is private
 // to the owner, so only the owner can implement a Decide for its authority.

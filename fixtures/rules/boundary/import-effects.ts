@@ -1,3 +1,3 @@
-// expect: a reader of its evidence is named open
+// expect: an effect runs in effects/
 import { run } from '../effects/run.js';
 export const r = run;

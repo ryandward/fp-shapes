@@ -5,7 +5,8 @@
 //
 //   node scripts/mutations.mjs <list.mjs>... [--tsconfig tsconfig.json] [--map src=lib/fp]
 //
-// A list file exports `gates` (the typetest file that must fail), `copy`
+// A list file exports `gates` (the typetest file that must fail, or a list of
+// files one of which must), `copy`
 // (the directories to copy into the scratch tree), and `mutations`. The
 // scratch tree holds those directories, the tsconfig, and a link to
 // node_modules, nothing else: a list names every directory its program reads,
@@ -46,7 +47,7 @@ let total = 0;
 
 for (const listPath of lists) {
   const list = await import(pathToFileURL(resolve(listPath)).href);
-  const gates = mapped(list.gates);
+  const gates = Array.isArray(list.gates) ? list.gates.map(mapped) : mapped(list.gates);
   const copy = list.copy.map(mapped);
   const mutations = list.mutations.map(([name, ...edits]) => [name, ...edits.map((e) => ({ ...e, file: mapped(e.file) }))]);
   console.log(`${listPath}: ${mutations.length} mutations against ${gates}`);
@@ -74,7 +75,7 @@ for (const listPath of lists) {
     }
     rmSync(dir, { recursive: true, force: true });
 
-    const gateLines = output.split('\n').filter((line) => line.startsWith(`${gates}(`));
+    const gateLines = output.split('\n').filter((line) => (Array.isArray(gates) ? gates : [gates]).some((g) => line.startsWith(`${g}(`)));
     const ok = gateLines.length > 0;
     held += ok ? 1 : 0;
     console.log(`${ok ? '✓' : '✗'} ${name}${ok ? `: ${gateLines[0].replace(/: error .*/, '')}` : ` (the build passed, or failed elsewhere; ${gates} holds nothing against this)`}`);

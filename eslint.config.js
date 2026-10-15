@@ -10,9 +10,8 @@
 //   effects     **/effects/**         perform I/O: try/throw/branch, the clock, the
 //                                     environment, timers; name unknown
 //   foreign     **/effects/**/foreign.ts   describe other code as it is
-//   ffi         **/boundary/*.ffi.ts  generated from a Koka core: a boundary module, and the one
-//                                     place a compiled module (…/.build/…) is imported
-//   primitives  **/sealed.ts (the one class, the one brand check, the one halt, the registries)
+//   primitives  **/sealed.ts (the one class, the one brand check, the one halt)
+//               **/command.ts (the step type, its two constructors and the interpreter)
 //               **/ledger.ts (the one append-only builder)
 //               **/total.ts (type-level utilities; names `unknown`, `undefined`)
 //               **/variant.ts (the combinators; the one generic record update and the one builder)
@@ -154,48 +153,28 @@ const rules = {
       'a default is written where it is declared, as a literal the compiler checks for excess keys',
     ),
   ],
-  // An effect is performed in effects/ and reaches the domain as a parameter
-  // or as the fact it produced. What the domain imports from an effects module
-  // is a reader of the evidence that module issues, named open… (held) or
-  // spend… (read once), so the reading is pinned to the issuer; the
-  // performers are parameters.
+  // An effect is performed in effects/ and reaches the domain as data: a
+  // command the domain returns, an outcome it folds, a fact it was given.
+  // Nothing of an effects module is imported into the domain or the boundary;
+  // a type-only import carries no value and stays.
   effects: [
     rule(
-      "ImportDeclaration[importKind!='type'][source.value=/(^|\\/)effects\\//] > ImportSpecifier[importKind!='type'][imported.name!=/^(open|spend)/]",
-      'an effect runs in effects/ and reaches here as a parameter; a reader of its evidence is named open… or spend…',
+      "ImportDeclaration[importKind!='type'][source.value=/(^|\\/)effects\\//] > ImportSpecifier[importKind!='type']",
+      'an effect runs in effects/ and reaches here as data: a command returned, an outcome folded, a fact given',
     ),
-    rule("ImportDeclaration[source.value=/(^|\\/)effects\\//] > ImportDefaultSpecifier", 'an effect runs in effects/ and reaches here as a parameter; a reader of its evidence is named open… or spend…'),
-    rule("ImportDeclaration[source.value=/(^|\\/)effects\\//] > ImportNamespaceSpecifier", 'an effect runs in effects/ and reaches here as a parameter; a reader of its evidence is named open… or spend…'),
+    rule("ImportDeclaration[source.value=/(^|\\/)effects\\//] > ImportDefaultSpecifier", 'an effect runs in effects/ and reaches here as data: a command returned, an outcome folded, a fact given'),
+    rule("ImportDeclaration[source.value=/(^|\\/)effects\\//] > ImportNamespaceSpecifier", 'an effect runs in effects/ and reaches here as data: a command returned, an outcome folded, a fact given'),
     rule(
-      "ExportNamedDeclaration[exportKind!='type'][source.value=/(^|\\/)effects\\//] > ExportSpecifier[exportKind!='type'][local.name!=/^(open|spend)/]",
-      'an effect runs in effects/ and reaches here as a parameter; a reader of its evidence is named open… or spend…',
+      "ExportNamedDeclaration[exportKind!='type'][source.value=/(^|\\/)effects\\//] > ExportSpecifier[exportKind!='type']",
+      'an effect runs in effects/ and reaches here as data: a command returned, an outcome folded, a fact given',
     ),
-    rule("ExportAllDeclaration[source.value=/(^|\\/)effects\\//]", 'an effect runs in effects/ and reaches here as a parameter; a reader of its evidence is named open… or spend…'),
+    rule("ExportAllDeclaration[source.value=/(^|\\/)effects\\//]", 'an effect runs in effects/ and reaches here as data: a command returned, an outcome folded, a fact given'),
     rule('ImportExpression', 'a module names its imports at the top'),
     rule("CallExpression[callee.object.name='Date'][callee.property.name='now'], CallExpression[callee.object.name='Date'][callee.property.value='now']", 'the time is read in effects/ and passed in as a fact'),
     rule("NewExpression[callee.name='Date'][arguments.length=0]", 'the time is read in effects/ and passed in as a fact'),
     rule("MemberExpression[object.name='Math'][property.name='random'], MemberExpression[object.name='Math'][property.value='random']", 'a random value is drawn in effects/ and passed in as a fact'),
   ],
   brackets: [rule("MemberExpression[computed=true][property.type='Literal']", 'read a field by its name; a fact here is a closed record')],
-  // A compiled core (the modules scripts/koka-build.mjs writes under .build/)
-  // holds raw constructors and resumptions, outside the parse, the registry
-  // and the spent set. Its generated FFI is the one module that imports it;
-  // a type-only import, as a gate makes, carries no value.
-  compiled: [
-    rule(
-      "ImportDeclaration[importKind!='type'][source.value=/(^|\\/)\\.build\\//] > ImportSpecifier[importKind!='type']",
-      'a compiled core is reached through its generated FFI (boundary/<core>.ffi.ts); the compiled module holds raw constructors and resumptions',
-    ),
-    rule("ImportDeclaration[importKind!='type'][source.value=/(^|\\/)\\.build\\//] > ImportDefaultSpecifier", 'a compiled core is reached through its generated FFI (boundary/<core>.ffi.ts); the compiled module holds raw constructors and resumptions'),
-    rule("ImportDeclaration[importKind!='type'][source.value=/(^|\\/)\\.build\\//] > ImportNamespaceSpecifier", 'a compiled core is reached through its generated FFI (boundary/<core>.ffi.ts); the compiled module holds raw constructors and resumptions'),
-    rule(
-      "ExportNamedDeclaration[exportKind!='type'][source.value=/(^|\\/)\\.build\\//] > ExportSpecifier[exportKind!='type']",
-      'a compiled core is reached through its generated FFI (boundary/<core>.ffi.ts); the compiled module holds raw constructors and resumptions',
-    ),
-    rule("ExportAllDeclaration[exportKind!='type'][source.value=/(^|\\/)\\.build\\//]", 'a compiled core is reached through its generated FFI (boundary/<core>.ffi.ts); the compiled module holds raw constructors and resumptions'),
-    rule("ImportExpression[source.value=/(^|\\/)\\.build\\//]", 'a compiled core is reached through its generated FFI (boundary/<core>.ffi.ts); the compiled module holds raw constructors and resumptions'),
-    rule("ImportExpression:not([source.type='Literal'])", 'a module is named as a string, so what is imported can be read'),
-  ],
 };
 
 const imports_name_their_file = [
@@ -318,13 +297,14 @@ export default [
     },
   },
   {
-    // ffi: a boundary module the generator writes for a compiled core, and the
-    // one place that core's compiled modules are imported
-    files: ['**/boundary/*.ffi.ts'],
+    // primitives: the step type's two constructors and the interpreter; the
+    // interpreter reads a step by its kind, and the constructors type a value
+    // by a parameter the compiler cannot see through
+    files: ['**/command.ts'],
     rules: {
-      'no-restricted-syntax': syntax(...except('conditionals', 'comparisons', 'classification', 'unknown', 'predicates', 'brackets', 'compiled')),
-      'no-restricted-imports': boundaryImports,
-      'no-restricted-globals': boundaryGlobals,
+      'no-restricted-syntax': syntax(...except('conditionals', 'comparisons', 'assertions', 'sums', 'unknown', 'brackets', 'holes', 'accessors')),
+      'no-restricted-imports': imports,
+      'no-restricted-globals': globals,
       'local/directives-are-gates': 'error',
     },
   },
@@ -396,7 +376,6 @@ export default [
       '@typescript-eslint/ban-ts-comment': ['error', { 'ts-expect-error': 'allow-with-description', minimumDescriptionLength: 10 }],
       'no-restricted-syntax': [
         ...syntax('assertions').filter((r) => typeof r === 'string' || !/declare/i.test(r.selector)),
-        ...rules.compiled,
         rule(
           "TSTypeReference[typeName.name=/^(Omit|Pick|Partial|Required|Exclude|Extract|NonNullable)$/]",
           'a gate asserts a declared type as it is; a derived subject proves a different type, so the declared type is what changes',

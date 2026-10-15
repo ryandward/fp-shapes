@@ -24,11 +24,9 @@ export const mutations = [
   ],
   ['let cases share fields', edit('src/variant.ts', '& M[P] & OnlyOwn<M, P>', '& M[P]')],
   ['let Total accept a recursive type', edit('src/total.ts', "  : Among<T, Seen> extends true ? 'recursive'\n", '')],
-  ['let a fact nest past four containers', edit('src/total.ts', 'type Depth = readonly [0, 0, 0, 0];', 'type Depth = readonly [0, 0, 0, 0, 0, 0, 0, 0];')],
-  ['let a seal hide depth', edit('src/total.ts', "  : T extends Sealed<symbol, infer P, Use> ? Walk<P, Seen>\n", '')],
+  ['let a seal hide recursion', edit('src/total.ts', "  : T extends Sealed<symbol, infer P, Use> ? Walk<P, Seen>\n", '')],
   ['let a seal hide a hole', edit('src/total.ts', '      T extends Sealed<symbol, infer P, Use> ? HasHoles<P>\n      : T extends Primitive ? false', '      T extends Primitive ? false')],
   ['let a seal hide a mutable field', edit('src/total.ts', '    T extends Sealed<symbol, infer P, Use> ? HasMutable<P>\n    : T extends Primitive ? false', '    T extends Primitive ? false')],
-  ['report depth as recursion', edit('src/total.ts', "  : Seen['length'] extends Depth['length'] ? 'deep'\n", "  : Seen['length'] extends Depth['length'] ? 'recursive'\n")],
   ['let a fold omit a case', edit('src/variant.ts', 'readonly [K in keyof M]: (v: Variant<M, K>) => R;', 'readonly [K in keyof M]?: (v: Variant<M, K>) => R;')],
   [
     'let occupancy accept undefined',
@@ -48,4 +46,9 @@ export const mutations = [
     edit('src/boundary/boundary.ts', 'seal: (fact: F) => Sealed<Tag, P, U> & Fact<P>): Boundary<Sealed<Tag, P, U>>', 'seal: (fact: F) => P & Fact<P>): Boundary<P>'),
     edit('src/boundary/boundary.ts', 'fold<Parse<F>, Variant<Parse<Sealed<Tag, P, U>>>>', 'fold<Parse<F>, Variant<Parse<P>>>'),
   ],
+  ['let a step be covariant in what it owes', edit('src/command.ts', 'export type Step<Ops extends Operations, S, O> = Erased<Ops, S> & { readonly [owes]: (o: O) => O };', 'export type Step<Ops extends Operations, S, O> = Erased<Ops, S> & { readonly [owes]: () => O };')],
+  ['let done owe anything', edit('src/command.ts', '  readonly done: (status: S) => Step<Ops, S, {}>;', '  readonly done: <O>(status: S) => Step<Ops, S, O>;')],
+  ['let an operation run without the receipt it spends', edit('src/command.ts', '  readonly suspend: <K extends keyof Ops & string, O extends Requires<Ops, K>>(', '  readonly suspend: <K extends keyof Ops & string, O>(')],
+  ['let an arm keep what the operation spent', edit('src/command.ts', "type After<O, Ops extends Operations, K extends keyof Ops, C> = Omit<O, Spends<Ops, K>> & Issued<Ops, K, C>;", "type After<O, Ops extends Operations, K extends keyof Ops, C> = O & Issued<Ops, K, C>;")],
+  ['let an answer issue nothing', edit('src/command.ts', "  C extends keyof Ops[K]['issues'] ? (Ops[K]['issues'][C] extends string ? { readonly [R in Ops[K]['issues'][C]]: true } : {}) : {};", '  {};')],
 ];

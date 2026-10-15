@@ -13,10 +13,11 @@
 
 import { z } from 'zod';
 import { boundary, sealing, type Boundary } from './boundary/boundary.js';
+import { commands, type Step } from './command.js';
 import { occupancy } from './boundary/evidence.js';
 import { Sealed } from './sealed.js';
 import type { Assert, Equal, Exact, Immutable, Total } from './total.js';
-import type { Deep, Recursive } from './total.js';
+import type { Recursive } from './total.js';
 import { fold, partition, type Classify, type Variant } from './variant.js';
 
 // --- provenance: a Sealed value comes from its authority and is read through it
@@ -84,8 +85,7 @@ export const sparse = boundary(z.object({ a: z.string().optional() }).readonly()
 // @ts-expect-error a boundary schema declares .readonly()
 export const mutable = boundary(z.object({ a: z.string() }));
 
-// @ts-expect-error a boundary schema's output nests through at most four containers
-export const nested = boundary(z.object({ a: z.object({ b: z.object({ c: z.array(z.object({ d: z.string() }).readonly()).readonly() }).readonly() }).readonly() }).readonly());
+export const nested = boundary(z.object({ a: z.object({ b: z.object({ c: z.array(z.object({ d: z.string() }).readonly()).readonly() }).readonly() }).readonly() }).readonly()); // nesting is the model's business
 
 // --- what an owner seals is exactly what it declares ----------------------------
 
@@ -115,18 +115,16 @@ export type _r1 = Assert<Equal<Total<Variant<Cause>>, Recursive<Variant<Cause>>>
 export type _r2 = Assert<Equal<Total<Tree>, Recursive<Tree>>>; // names 'kids'
 export type _r3 = Assert<Equal<Immutable<Variant<Cause>>, Recursive<Variant<Cause>>>>;
 export type _r4 = Assert<Equal<Recursive<Variant<Cause>>['a fact is finite; this one contains its own kind through'], 'last'>>;
-export type _r5 = Assert<Total<Four>>; // four containers on a path is a fact
+export type _r5 = Assert<Total<Four>>; // nesting is the model's business: four containers on a path is a fact
 export type _r6 = Assert<Immutable<Four>>;
-export type _r7 = Assert<Equal<Total<Five>, Deep<Five>>>; // a fifth is not; this is depth, not recursion
-export type _r8 = Assert<Equal<Immutable<Five>, Deep<Five>>>;
-export type _r9 = Assert<Equal<Deep<Five>['a fact is shallow; this one nests past four containers through'], 'a'>>;
-export type _r10 = Assert<Equal<Deep<Wide>['a fact is shallow; this one nests past four containers through'], never>>; // width is not depth
+export type _r7 = Assert<Total<Five>>; // and so is a fifth; depth is not recursion
+export type _r8 = Assert<Immutable<Five>>;
 export type _r11 = Assert<Total<Wide>>;
 
 // --- a sealed value is a fact: every assertion reads its payload ----------------
 
-type Holding = { readonly status: Sealed<typeof _A, Five> };
-export type _s1 = Assert<Equal<Total<Holding>, Deep<Holding>>>; // sealing a shape does not hide it from the bound
+type Holding = { readonly status: Sealed<typeof _A, Variant<Cause>> };
+export type _s1 = Assert<Equal<Total<Holding>, Recursive<Holding>>>; // sealing a shape does not hide its recursion
 export type _s2 = Assert<Equal<Total<Sealed<typeof _A, { readonly n?: number }>>, false>>; // a sealed payload is total
 export type _s3 = Assert<Equal<Immutable<Sealed<typeof _A, { n: number }>>, false>>; // a sealed payload is readonly
 export type _s4 = Assert<Total<Sealed<typeof _A, Four>>>; // the envelope is not a container
@@ -164,3 +162,42 @@ export type _e2 = Assert<Equal<Exact<{ a?: string }, { a?: string }>, false>>; /
 export type _e3 = Assert<Equal<Exact<{ a: string }, { a: string | number }>, false>>;
 export type _e4 = Assert<Equal<Exact<{ a: string }, { readonly a: string }>, true>>; // shape, not mutability
 export type _e5 = Assert<Equal<Exact<{ a: { b?: string } }, { a: { b?: string } }>, false>>; // nested optional
+
+// --- linearity: what an attempt owes is in the type of its steps ------------
+
+// A plane with one receipt: `open` issues it, `close` and `discard` spend it.
+type Token = { readonly id: string };
+type Gate = {
+  readonly open: { readonly args: {}; readonly outcome: { opened: { readonly token: Token }; shut: {} }; readonly issues: { readonly opened: 'token' }; readonly spends: never };
+  readonly close: { readonly args: { readonly token: Token }; readonly outcome: { closed: {} }; readonly issues: {}; readonly spends: 'token' };
+  readonly discard: { readonly args: { readonly token: Token }; readonly outcome: { discarded: {} }; readonly issues: {}; readonly spends: 'token' };
+  readonly ping: { readonly args: {}; readonly outcome: { pong: {} }; readonly issues: {}; readonly spends: never };
+};
+type GateStatus = { over: {} };
+const gate = commands<Gate, Variant<GateStatus>>();
+type GateStep<O> = Step<Gate, Variant<GateStatus>, O>;
+const over: Variant<GateStatus> = { kind: 'over' };
+
+// The shape that holds: a token issued is spent on every path, exactly once.
+export const whole = (): GateStep<{}> =>
+  gate.suspend('open', {}, {
+    opened: ({ token }) => gate.suspend('close', { token }, { closed: () => gate.done(over) }),
+    shut: () => gate.done(over),
+  });
+
+// @ts-expect-error a receipt issued is owed: the arm that received it cannot finish without spending it
+export const dropped = (): GateStep<{}> => gate.suspend('open', {}, { opened: () => gate.done(over), shut: () => gate.done(over) });
+
+const closed = (token: Token): GateStep<{ token: true }> => gate.suspend('close', { token }, { closed: () => gate.done(over) });
+// @ts-expect-error a receipt is spent once: after close, nothing is owed for discard to spend
+export const twice = (token: Token): GateStep<{ token: true }> => gate.suspend('close', { token }, { closed: () => gate.suspend('discard', { token }, { discarded: () => gate.done(over) }) });
+export const once = closed;
+
+// @ts-expect-error a receipt is spent after it is issued: nothing is owed yet
+export const early = (token: Token): GateStep<{}> => gate.suspend('close', { token }, { closed: () => gate.done(over) });
+
+// @ts-expect-error what is owed is carried through every operation between issue and spend: a drop after ping is still a drop
+export const carried = (): GateStep<{}> => gate.suspend('open', {}, { opened: () => gate.suspend('ping', {}, { pong: () => gate.done(over) }), shut: () => gate.done(over) });
+
+// @ts-expect-error a step owing nothing is not a step owing a token, and the reverse: the index is invariant
+export const relabelled: GateStep<{ token: true }> = gate.done(over);

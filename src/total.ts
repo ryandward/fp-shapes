@@ -12,17 +12,12 @@
 //   Exact<A, B>   correspondence: both total, same keys, mutually assignable.
 //                 For repos that keep a hand-declared model beside a schema.
 //
-// A fact is finite and shallow. A type that contains its own kind (a cause
-// whose payload is another cause, a node whose field is a node) is two facts
-// folded into one; both assertions answer `Recursive<T>`, naming the property
-// the recursion runs through. A type that nests through more than four
-// containers (objects and arrays, counted along one path from the root to a
-// leaf) is several facts stacked without names; both assertions answer
-// `Deep<T>`, naming the property the depth runs through. Four admits a
-// record, its sub-records, a collection, and the collection's element; it
-// refuses one entity's structure embedded in another's. Genuinely recursive
-// data (a tree) is a structure of facts: assert the node, and let the
-// structure be built from asserted nodes.
+// A fact is finite. A type that contains its own kind (a cause whose payload
+// is another cause, a node whose field is a node) is two facts folded into
+// one; both assertions answer `Recursive<T>`, naming the property the
+// recursion runs through. Genuinely recursive data (a tree) is a structure of
+// facts: assert the node, and let the structure be built from asserted nodes.
+// How deeply a finite fact nests is the model's business, not a rule.
 //
 // These are gates, so they are tested in gates.typetest.ts like any other gate.
 
@@ -43,15 +38,12 @@ type OpenKeys<T extends object> = {
   [K in keyof T]-?: {} extends Pick<T, K> ? (Forbidden<T, K> extends true ? never : K) : never;
 }[keyof T];
 
-// The containers a fact may nest through on any one path.
-type Depth = readonly [0, 0, 0, 0];
-
 type Among<T, Seen extends readonly unknown[]> =
   true extends { [I in keyof Seen]: Equal<T, Seen[I]> }[number] ? true : false;
 
 // Every leaf answers: 'finite' when the walk bottoms out, 'recursive' when a
-// container is its own ancestor, 'deep' when the bound is reached first. A
-// cycle longer than the bound is reported as depth, which it also is.
+// container is its own ancestor. The walk carries its ancestors, so a cycle
+// of any length is found where it closes.
 type Walk<T, Seen extends readonly unknown[] = []> =
   IsAny<T> extends true ? 'finite'
   : [T] extends [never] ? 'finite'
@@ -59,20 +51,18 @@ type Walk<T, Seen extends readonly unknown[] = []> =
   : T extends Primitive ? 'finite'
   : T extends (...args: never[]) => unknown ? 'finite'
   : Among<T, Seen> extends true ? 'recursive'
-  : Seen['length'] extends Depth['length'] ? 'deep'
   : T extends readonly (infer E)[] ? Walk<E, [...Seen, T]>
   : T extends object ? { [K in keyof T]-?: Walk<T[K], [...Seen, T]> }[keyof T]
   : 'finite';
 
-// The top-level properties through which an answer runs.
-type Through<T, Which extends 'recursive' | 'deep', Seen extends readonly unknown[] = []> =
-  T extends Sealed<symbol, infer P, Use> ? Through<P, Which, Seen>
-  : T extends readonly (infer E)[] ? Through<E, Which, [...Seen, T]>
-  : T extends object ? { [K in keyof T]-?: Which extends Walk<T[K], [...Seen, T]> ? K : never }[keyof T]
+// The top-level properties through which the recursion runs.
+type Through<T, Seen extends readonly unknown[] = []> =
+  T extends Sealed<symbol, infer P, Use> ? Through<P, Seen>
+  : T extends readonly (infer E)[] ? Through<E, [...Seen, T]>
+  : T extends object ? { [K in keyof T]-?: 'recursive' extends Walk<T[K], [...Seen, T]> ? K : never }[keyof T]
   : never;
 
-export type Recursive<T> = { readonly 'a fact is finite; this one contains its own kind through': Through<T, 'recursive'> };
-export type Deep<T> = { readonly 'a fact is shallow; this one nests past four containers through': Through<T, 'deep'> };
+export type Recursive<T> = { readonly 'a fact is finite; this one contains its own kind through': Through<T> };
 
 type HasHoles<T> =
   IsAny<T> extends true ? true
@@ -100,7 +90,6 @@ type HasHoles<T> =
 
 export type Total<T> =
   'recursive' extends Walk<T> ? Recursive<T>
-  : 'deep' extends Walk<T> ? Deep<T>
   : HasHoles<T> extends false ? true
   : false;
 
@@ -128,7 +117,6 @@ type HasMutable<T> =
 
 export type Immutable<T> =
   'recursive' extends Walk<T> ? Recursive<T>
-  : 'deep' extends Walk<T> ? Deep<T>
   : HasMutable<T> extends false ? true
   : false;
 
