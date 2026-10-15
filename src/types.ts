@@ -55,7 +55,6 @@ type HasGaps<T> =
   : true extends (
       T extends Opaque<symbol, infer P, Use> ? HasGaps<P>
       : T extends Primitive ? false
-      : T extends Date ? true
       : T extends (...args: never[]) => unknown ? true
       : T extends readonly (infer E)[] ? ([E] extends [never] ? false : HasGaps<E>)
       : T extends object ?

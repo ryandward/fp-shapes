@@ -1,4 +1,4 @@
-export { match, none, some, ok, err, tryCatch, nonEmpty } from './union.js';
+export { match, none, some, ok, err, nonEmpty } from './union.js';
 export type { Union, Handlers, Option, OptionCases, Result, ResultCases, NonEmptyArray } from './union.js';
 export { Opaque } from './opaque.js';
 export type { Use } from './opaque.js';
@@ -6,5 +6,7 @@ export { deepFreeze } from './freeze.js';
 export type { IsComplete, IsDeepReadonly, Recursive, Equal, Expect } from './types.js';
 export { decoder } from './decode.js';
 export type { Decoder, Issue, CompleteSchema } from './decode.js';
-export { program, run } from './program.js';
-export type { Operation, Operations, Program, Continuations, Constructors, Interpreter, LogEntry, Outcome } from './program.js';
+export { program } from './program.js';
+export type { Operation, Operations, Program, Continuations, Constructors } from './program.js';
+export { run, tryCatch } from './run.js';
+export type { Interpreter, LogEntry, Outcome } from './run.js';

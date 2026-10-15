@@ -36,10 +36,8 @@
 // the resource value a single-use `Opaque` created by the interpreter, so
 // that releasing the same value twice fails at runtime too.
 //
-// `run(interpreter, program)` performs each operation, feeds the output to
-// the matching continuation, and returns the final value with a log of every
-// operation performed; if an interpreter function throws, it returns the
-// error with the log so far.
+// Programs are run by `run` in run.ts, which is kept separate so that this
+// file's declarations mention nothing that performs effects.
 
 import { match, type Union } from './union.js';
 
@@ -83,7 +81,7 @@ type Perform<Ops extends Operations, A> = {
 }[keyof Ops & string];
 
 // A program without the held-resources index, as the interpreter sees it.
-type Untracked<Ops extends Operations, A> = { readonly kind: 'pure'; readonly value: A } | Perform<Ops, A>;
+export type Untracked<Ops extends Operations, A> = { readonly kind: 'pure'; readonly value: A } | Perform<Ops, A>;
 
 // The function-typed property makes Program invariant in Held.
 export type Program<Ops extends Operations, A, Held> = Untracked<Ops, A> & { readonly [held]: (h: Held) => Held };
@@ -110,41 +108,3 @@ export const program = <Ops extends Operations, A>(): Constructors<Ops, A> => ({
     return Object.freeze({ kind: 'perform', op, input, resume, [held]: identity }) as unknown as Program<Ops, A, Held>;
   },
 });
-
-// ---------------------------------------------------------------- interpreting
-
-export type Interpreter<Ops extends Operations> = {
-  readonly [K in keyof Ops]: (input: Ops[K]['input']) => Promise<Union<Ops[K]['output']>>;
-};
-
-export type LogEntry<Ops extends Operations> = Union<{
-  readonly [K in keyof Ops & string]: { readonly input: Ops[K]['input']; readonly output: Union<Ops[K]['output']> };
-}>;
-
-export type Outcome<Ops extends Operations, A> = Union<{
-  completed: { readonly value: A; readonly log: ReadonlyArray<LogEntry<Ops>> };
-  failed: { readonly error: Error; readonly log: ReadonlyArray<LogEntry<Ops>> };
-}>;
-
-type AnyPerform<Ops extends Operations, A> = {
-  readonly op: keyof Ops & string;
-  readonly input: Ops[keyof Ops]['input'];
-  readonly resume: (output: Union<Ops[keyof Ops]['output']>) => Untracked<Ops, A>;
-};
-
-// Runs a complete program: one that starts holding nothing.
-export const run = async <Ops extends Operations, A>(interpreter: Interpreter<Ops>, start: Program<Ops, A, {}>): Promise<Outcome<Ops, A>> => {
-  const log: LogEntry<Ops>[] = [];
-  let current: Untracked<Ops, A> = start;
-  try {
-    while (current.kind === 'perform') {
-      const step = current as unknown as AnyPerform<Ops, A>;
-      const output = await interpreter[step.op](step.input);
-      log.push(Object.freeze({ kind: step.op, input: step.input, output }) as unknown as LogEntry<Ops>);
-      current = step.resume(output);
-    }
-    return { kind: 'completed', value: current.value, log: Object.freeze([...log]) };
-  } catch (thrown) {
-    return { kind: 'failed', error: thrown instanceof Error ? thrown : new Error(String(thrown)), log: Object.freeze([...log]) };
-  }
-};

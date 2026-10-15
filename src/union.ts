@@ -42,15 +42,6 @@ export const some = <A>(value: A): Option<A> => ({ kind: 'some', value });
 export const ok = <A>(value: A): Result<never, A> => ({ kind: 'ok', value });
 export const err = <E>(error: E): Result<E, never> => ({ kind: 'err', error });
 
-// Run an async function and capture a thrown value as an `err`.
-export const tryCatch = async <A>(f: () => Promise<A>): Promise<Result<Error, A>> => {
-  try {
-    return ok(await f());
-  } catch (thrown) {
-    return err(thrown instanceof Error ? thrown : new Error(String(thrown)));
-  }
-};
-
 // An array with at least one element, and the one way to get one from an
 // ordinary array.
 

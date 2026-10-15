@@ -58,6 +58,8 @@ acquired twice. See the header of `src/program.ts` for a worked example.
 | `src/freeze.ts` | `deepFreeze` |
 | `src/types.ts` | `IsComplete`, `IsDeepReadonly`, `Recursive`, `Equal`, `Expect` |
 | `src/decode.ts` | `decoder` |
-| `src/program.ts` | `program`, `run` |
+| `src/program.ts` | `program` |
+| `src/run.ts` | `run`, `tryCatch` (these perform effects) |
+| `src/pure.ts` | entry point for pure code: everything except `run`, `tryCatch`, `decoder` and creating `Opaque` values |
 | `test/types.test-d.ts` | type tests: each `@ts-expect-error` line must fail to compile |
 | `test/runtime.test.ts` | runtime tests |

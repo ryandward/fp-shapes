@@ -4,8 +4,9 @@ import { z } from 'zod';
 import { decoder } from '../src/decode.js';
 import { deepFreeze } from '../src/freeze.js';
 import { Opaque } from '../src/opaque.js';
-import { program, run, type Interpreter, type Program } from '../src/program.js';
-import { match, nonEmpty, tryCatch, type Union } from '../src/union.js';
+import { program, type Program } from '../src/program.js';
+import { run, tryCatch, type Interpreter } from '../src/run.js';
+import { match, nonEmpty, type Union } from '../src/union.js';
 
 test('match calls the handler for the value’s case', () => {
   type Cases = { circle: { readonly r: number }; square: { readonly side: number } };
