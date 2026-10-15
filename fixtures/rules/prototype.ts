@@ -1,3 +1,3 @@
 // expect: a method is called on its value
-// a reviewer's bypass: the mutator reached through its prototype
+// the mutator reached through its prototype, its name hidden from the method rule
 export const mutate = (xs: number[]): number => Array.prototype.push.call(xs, 1);

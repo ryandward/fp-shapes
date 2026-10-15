@@ -16,7 +16,7 @@
 
 ## 0.5.7
 
-Two of a reviewer's four bypass programs closed; the other two recorded.
+Two bypass programs closed; two recorded as open.
 
 - Domain tier: a comparison operator or `!` is refused (a comparison is a
   decision; sameness is `compare`), and so are `filter`, `find`,
