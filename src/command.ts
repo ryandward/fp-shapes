@@ -22,8 +22,10 @@
 // receipt is a sealed value spent once by identity, so a receipt carried
 // into another attempt's chain is refused where it is spent.
 //
-// What the owed index does not count: two receipts of the same name
-// outstanding at once. A plane that issues two names them differently.
+// Two receipts of the same name cannot be outstanding at once: an operation
+// that could issue a receipt whose name is already owed is refused, so the
+// index is always a set of names with one receipt behind each. A plane that
+// needs two at once gives them different names.
 
 import { ledger } from './ledger.js';
 import { fold, type Cases, type Variant } from './variant.js';
@@ -53,6 +55,15 @@ type Requires<Ops extends Operations, K extends keyof Ops> = { readonly [R in Sp
 // What one answer issues.
 type Issued<Ops extends Operations, K extends keyof Ops, C> =
   C extends keyof Ops[K]['issues'] ? (Ops[K]['issues'][C] extends string ? { readonly [R in Ops[K]['issues'][C]]: true } : {}) : {};
+
+// The receipts an operation may issue, by any answer.
+type Issues<Ops extends Operations, K extends keyof Ops> = Extract<Ops[K]['issues'][keyof Ops[K]['issues']], string>;
+
+// A receipt is issued while none of its name is owed: an operation that
+// could issue one already outstanding has no name to run under. (Two of a
+// name at once would fold into one in the index; refusing the second issue
+// is what keeps the index a count of one.)
+type Fresh<O, Ops extends Operations, K extends keyof Ops> = [Extract<keyof O, Issues<Ops, K>>] extends [never] ? K : never;
 
 // What is owed after the operation answered with case C: what was owed, less
 // what the operation spent, plus what the answer issued.
@@ -90,7 +101,7 @@ export type Arms<Ops extends Operations, S, K extends keyof Ops, O> = {
 
 export type Algebra<Ops extends Operations, S> = {
   readonly done: (status: S) => Step<Ops, S, {}>;
-  readonly suspend: <K extends keyof Ops & string, O extends Requires<Ops, K>>(op: K, args: Ops[K]['args'], arms: Arms<Ops, S, K, O>) => Step<Ops, S, O>;
+  readonly suspend: <K extends keyof Ops & string, O extends Requires<Ops, K>>(op: Fresh<O, Ops, K>, args: Ops[K]['args'], arms: Arms<Ops, S, K, O>) => Step<Ops, S, O>;
 };
 
 // A plane's constructors. The assertions in this file are where a value is
@@ -101,7 +112,7 @@ export type Algebra<Ops extends Operations, S> = {
 // hold what the assertions could otherwise hide.
 export const commands = <Ops extends Operations, S>(): Algebra<Ops, S> => ({
   done: (status) => Object.freeze({ kind: 'done', status, [owes]: same }) as unknown as Step<Ops, S, {}>,
-  suspend: <K extends keyof Ops & string, O extends Requires<Ops, K>>(op: K, args: Ops[K]['args'], arms: Arms<Ops, S, K, O>): Step<Ops, S, O> => {
+  suspend: <K extends keyof Ops & string, O extends Requires<Ops, K>>(op: Fresh<O, Ops, K>, args: Ops[K]['args'], arms: Arms<Ops, S, K, O>): Step<Ops, S, O> => {
     const erased = arms as unknown as Cases<Ops[K]['outcome'], Erased<Ops, S>>;
     const resume = (outcome: Variant<Ops[K]['outcome']>): Erased<Ops, S> => fold<Ops[K]['outcome'], Erased<Ops, S>>(erased)(outcome);
     return Object.freeze({ kind: `await_${op}`, args, resume, [owes]: same }) as unknown as Step<Ops, S, O>;

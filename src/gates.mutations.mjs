@@ -50,5 +50,6 @@ export const mutations = [
   ['let done owe anything', edit('src/command.ts', '  readonly done: (status: S) => Step<Ops, S, {}>;', '  readonly done: <O>(status: S) => Step<Ops, S, O>;')],
   ['let an operation run without the receipt it spends', edit('src/command.ts', '  readonly suspend: <K extends keyof Ops & string, O extends Requires<Ops, K>>(', '  readonly suspend: <K extends keyof Ops & string, O>(')],
   ['let an arm keep what the operation spent', edit('src/command.ts', "type After<O, Ops extends Operations, K extends keyof Ops, C> = Omit<O, Spends<Ops, K>> & Issued<Ops, K, C>;", "type After<O, Ops extends Operations, K extends keyof Ops, C> = O & Issued<Ops, K, C>;")],
+  ['let a receipt be issued while one of its name is owed', edit('src/command.ts', '(op: Fresh<O, Ops, K>, args: Ops[K][\'args\'], arms: Arms<Ops, S, K, O>) => Step<Ops, S, O>;', '(op: K, args: Ops[K][\'args\'], arms: Arms<Ops, S, K, O>) => Step<Ops, S, O>;')],
   ['let an answer issue nothing', edit('src/command.ts', "  C extends keyof Ops[K]['issues'] ? (Ops[K]['issues'][C] extends string ? { readonly [R in Ops[K]['issues'][C]]: true } : {}) : {};", '  {};')],
 ];

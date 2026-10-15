@@ -18,7 +18,7 @@ stops holding:
   (`Assert<…>`) or a refutation it checks (`@ts-expect-error` with a
   description). Each gate is proved *necessary* by `scripts/mutations.mjs`:
   the guarantee is removed from a copy of the library and the gate must
-  fail at its line. Twenty-six loosenings against the library's gates,
+  fail at its line. Twenty-seven loosenings against the library's gates,
   five against the example's; a gate that holds while its guarantee is
   gone fails the check.
 - **Syntax refusals.** `eslint.config.js` refuses the constructs the type
@@ -135,6 +135,7 @@ names a `test()` in `test/`.
 | a receipt spent twice | everywhere | type: the second spend finds nothing owed | gate `twice`; mutation "let an arm keep what the operation spent"; example mutation "release a hold that was shipped" |
 | a receipt spent before it is issued | everywhere | type: `suspend` requires what the operation spends to be owed | gate `early`; mutation "let an operation run without the receipt it spends"; example mutation "ship before anything is reserved" |
 | a receipt forgotten across an operation that does not spend it | everywhere | type: what is owed is carried through every arm | gate `carried`; mutation "let an answer issue nothing" |
+| a receipt issued while one of its name is still owed (two holds at once, which the index would fold into one) | everywhere | type: `suspend` requires that nothing the operation could issue is already owed | gate `reissued`; mutation "let a receipt be issued while one of its name is owed" |
 | a step owing something passed off as a step owing nothing, or the reverse | everywhere | type: `Step` is invariant in what it owes | gate `relabelled` (linearity); mutation "let a step be covariant in what it owes" |
 | a receipt minted or read anywhere but its adapter | everywhere | type: the authority is a private symbol of the adapter module; the domain has no `new`, no `Symbol`, no authority | example gates `authority`, `forged`, `peeked`; example mutation "export the hold authority" |
 
@@ -177,15 +178,12 @@ names a `test()` in `test/`.
 |---|---|---|
 | a lint rule no fixture needs | `scripts/rule-coverage.mjs` fails the check | 97/97 proved |
 | an acceptor rule no fixture needs, a fixture that does not compile, or a fixture two rules refuse | the fixture run fails | 74/74 agree, 7/7 rules proved |
-| a gate that holds while its guarantee is gone | `scripts/mutations.mjs` fails the check | 31/31 loosenings caught |
+| a gate that holds while its guarantee is gone | `scripts/mutations.mjs` fails the check | 32/32 loosenings caught |
 | an ambient declaration under `src` | `check:dts` | — |
 | a lint tier that matches nothing from a host's directory | tiers keyed by path segment with no fixed root | host composition in the README |
 
 ## Open: said by the contract, not held by the build
 
-- **Two receipts of one name outstanding at once.** The owed index is a
-  set of names. A plane that issues two of a kind names them differently;
-  nothing refuses a plane that does not.
 - **A receipt carried into another attempt's chain.** Statically each
   chain's index balances; that a receipt spent in one chain was issued in
   that chain is the spent set's at runtime, by identity.

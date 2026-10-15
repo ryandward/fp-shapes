@@ -142,27 +142,32 @@ kernel derives it from the plane's declaration:
   `After<O, Ops, K, C>` = what was owed, less what `K` spends, plus what
   `C` issues;
 - `suspend` on `K` requires `O extends Requires<Ops, K>`: what `K` spends
-  must be owed;
+  must be owed; and it requires that nothing `K` could issue is already
+  owed (`Fresh<O, Ops, K>`), so a receipt is issued only while none of
+  its name is outstanding;
 - the step type is invariant in `O` (a function-typed property), so a step
   owing nothing is not a step owing something, and the reverse.
 
 Hence, statically, in the arm where it happens: a receipt issued and not
 spent before the chain ends (an arm that owes one returns `done`) is a
 type error; a receipt spent twice (the second spend finds nothing owed)
-is a type error; a receipt spent before it is issued is a type error; what
-is owed is carried through every operation between issue and spend. The
-gates `dropped`, `twice`, `early`, `carried`, `relabelled` in
+is a type error; a receipt spent before it is issued is a type error; a
+receipt issued while one of its name is still owed is a type error; and
+what is owed is carried through every operation between issue and spend.
+This is the rule L of a linear sequence (issue requires the name not
+outstanding, spend requires it outstanding, the end requires nothing
+outstanding), applied to the branching chain instead of a flat list. The
+gates `dropped`, `twice`, `early`, `carried`, `relabelled`, `reissued` in
 `src/gates.typetest.ts` hold each, with a mutation per gate. Holds.
 
-What the owed index does not count: two receipts of the same name
-outstanding at once (a plane that issues two names them differently), and
-the identity of a receipt across attempts. The runtime half holds the
-latter: a receipt is a `Sealed<_, _, 'spend'>` minted by the adapter that
-performs the issuing operation, and the adapter that performs the spending
-operation reads it with `Sealed.spend`, which refuses a second read of the
-same value by identity, whatever route it took. The domain cannot mint
-one (no `new`, no `Symbol`, no authority), read one, or spend one; it
-carries it from the arm that received it to the operation that takes it.
+What the owed index does not track is the identity of a receipt across
+attempts. The runtime half holds that: a receipt is a
+`Sealed<_, _, 'spend'>` minted by the adapter that performs the issuing
+operation, and the adapter that performs the spending operation reads it
+with `Sealed.spend`, which refuses a second read of the same value by
+identity, whatever route it took. The domain cannot mint one (no `new`,
+no `Symbol`, no authority), read one, or spend one; it carries it from
+the arm that received it to the operation that takes it.
 
 This is linearity at the level of the chain, in the type, which is what
 the domain writes; it is not variable-level move semantics, which
@@ -241,7 +246,6 @@ checked contravariantly).
 
 Open, and said so here and in `GUARANTEES.md`:
 
-- two receipts of one name outstanding at once are not counted (§4);
 - a receipt carried into another attempt's chain is refused at runtime,
   not statically (§4);
 - a shell that is never called: the reach rule (§5) says every domain

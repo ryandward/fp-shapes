@@ -77,6 +77,7 @@ export const fulfil = (o: Order): Next<{}> =>
 An arm that received a hold and returns `done` does not compile; an arm
 that releases a hold already shipped does not compile; a ship before a
 reservation does not compile; a hold forgotten across a charge does not
+compile; a second reservation while a hold is still held does not
 compile. The interpreter in `effects/` performs each operation through
 an `Effects` record, resumes the chain with the outcome, and keeps the
 ledger:
@@ -309,7 +310,8 @@ Five kinds of check, because the guarantees are of different kinds.
   produce is the one its guarantee describes; each line can fail in exactly
   one way; the assertion utilities are gated like everything else. The
   linearity gates hold a chain that drops, double-spends, spends early,
-  forgets across an operation, or relabels what it owes.
+  forgets across an operation, issues a second receipt of a name still
+  owed, or relabels what it owes.
 - **Lint** (`eslint.config.js`, `fixtures/rules/**/*.ts`): the rules the
   type system describes but the language keeps available, one fixture per
   rule, each declaring the message lint gives for it, in a directory per
@@ -398,7 +400,7 @@ and the tests; lint; 150 rule fixtures (113 for the domain and primitives
 tiers, 23 for the boundary tier, 14 for the effects and foreign tiers),
 every one of the 97 rules proved by one; the acceptor over the example and
 its 74 fixtures, every one of its 6 rules proved; no `.d.ts` under `src`;
-31 mutations (26 against the library's gates, 5 against the example's);
+32 mutations (27 against the library's gates, 5 against the example's);
 44 runtime tests.
 
 ## The example
@@ -489,10 +491,8 @@ module out of the domain's path segments so the acceptor does not walk it.
   second a no-op. Which values are spent and which are held is the
   owner's declaration, and review sees whether it matches what the value
   is for.
-- A plane that issues two receipts of one name at once is not counted by
-  the owed index; name them differently. A receipt carried from one
-  attempt's chain into another is refused at runtime, by identity, not
-  statically.
+- A receipt carried from one attempt's chain into another is refused at
+  runtime, by identity, not statically.
 - The reach rule says every domain binding is reached from the shell. It
   does not say the shell is reached from the host's program; a test per
   entry point holds that.

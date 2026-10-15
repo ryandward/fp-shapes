@@ -201,3 +201,6 @@ export const carried = (): GateStep<{}> => gate.suspend('open', {}, { opened: ()
 
 // @ts-expect-error a step owing nothing is not a step owing a token, and the reverse: the index is invariant
 export const relabelled: GateStep<{ token: true }> = gate.done(over);
+
+// @ts-expect-error a receipt is issued while none of its name is owed: a second open before the first token is spent has no name to run under
+export const reissued = (token: Token): GateStep<{ token: true }> => gate.suspend('open', {}, { opened: () => closed(token), shut: () => closed(token) });
