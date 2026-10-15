@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "noLib": true,
+    "types": [],
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "paths": { "fp-shapes/pure": ["../../dist/pure.d.ts"] }
+  },
+  "files": ["../../pure/lib.d.ts"],
+  "include": ["good/*.ts"]
+}

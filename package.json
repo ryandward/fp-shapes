@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "tsc -p tsconfig.json && npm test",
+    "build": "tsc -p tsconfig.build.json",
+    "check": "npm run build && tsc -p tsconfig.json && npm test",
     "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
@@ -16,10 +17,24 @@
     "typescript": "^5.9.3"
   },
   "files": [
-    "src",
+    "dist",
+    "pure",
     "README.md"
   ],
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./pure": {
+      "types": "./dist/pure.d.ts",
+      "default": "./dist/pure.js"
+    }
+  },
+  "bin": {
+    "fp-shapes-check": "./pure/check.mjs"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.9"
   }
 }

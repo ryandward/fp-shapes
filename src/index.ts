@@ -1,5 +1,5 @@
-export { match, none, some, ok, err, nonEmpty } from './union.js';
-export type { Union, Handlers, Option, OptionCases, Result, ResultCases, NonEmptyArray } from './union.js';
+export { match, bool, none, some, ok, err, nonEmpty } from './union.js';
+export type { Union, Handlers, BoolHandlers, Option, OptionCases, Result, ResultCases, NonEmptyArray } from './union.js';
 export { Opaque } from './opaque.js';
 export type { Use } from './opaque.js';
 export { deepFreeze } from './freeze.js';

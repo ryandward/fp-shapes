@@ -1,0 +1,16 @@
+{
+  "//": "Copy to your project as tsconfig.pure.json and set include to your pure files. Run: npx fp-shapes-check tsconfig.pure.json",
+  "compilerOptions": {
+    "noLib": true,
+    "types": [],
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true
+  },
+  "files": ["node_modules/fp-shapes/pure/lib.d.ts"],
+  "include": ["src/logic/**/*.ts"]
+}

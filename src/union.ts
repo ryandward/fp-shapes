@@ -42,6 +42,14 @@ export const some = <A>(value: A): Option<A> => ({ kind: 'some', value });
 export const ok = <A>(value: A): Result<never, A> => ({ kind: 'ok', value });
 export const err = <E>(error: E): Result<E, never> => ({ kind: 'err', error });
 
+// The boolean eliminator: one handler for each value, like `match` for a
+// two-case union. `bool({ true: () => 'yes', false: () => 'no' })(b)`.
+export type BoolHandlers<R> = { readonly true: () => R; readonly false: () => R };
+export const bool =
+  <R>(handlers: BoolHandlers<R>) =>
+  (b: boolean): R =>
+    b ? handlers.true() : handlers.false();
+
 // An array with at least one element, and the one way to get one from an
 // ordinary array.
 
