@@ -66,8 +66,22 @@ const rules = {
   // A comparison is a decision. Equality of facts is `compare`, a boundary
   // decision; ordering and membership are classified at the boundary too.
   comparisons: [
-    rule("BinaryExpression[operator=/^(===|!==|==|!=|<|>|<=|>=)$/]", 'a comparison is a decision: classify at the boundary (compare, for sameness), fold here'),
+    rule("BinaryExpression[operator=/^(===|!==|==|!=|<|>|<=|>=|in|instanceof)$/]", 'a comparison is a decision: classify at the boundary (compare, for sameness), fold here'),
     rule("UnaryExpression[operator='!']", 'a negation is a decision: classify at the boundary, fold here'),
+    rule(
+      "CallExpression[callee.property.name=/^(startsWith|endsWith|includes|has|test|is|isArray|isNaN|isFinite|isInteger|isSafeInteger|isFrozen|isSealed|isExtensible|hasOwn|hasOwnProperty|isPrototypeOf)$/], CallExpression[callee.property.value=/^(startsWith|endsWith|includes|has|test|is|isArray|isNaN|isFinite|isInteger|isSafeInteger|isFrozen|isSealed|isExtensible|hasOwn|hasOwnProperty|isPrototypeOf)$/]",
+      'a method that answers yes or no is a decision: classify at the boundary, fold here',
+    ),
+    rule("CallExpression[callee.name='Boolean'], NewExpression[callee.name='Boolean']", 'a truthiness test is a decision: classify at the boundary, fold here'),
+  ],
+  // An operation that can throw on a fact is not total; serialization is an
+  // edge's job. Accessors and methods in a literal make a value that is not data.
+  partial: [
+    rule("MemberExpression[object.name='JSON'][property.name='stringify'], MemberExpression[object.name='JSON'][property.value='stringify']", 'JSON.stringify throws on a bigint, which is a fact leaf; serialize at the edge'),
+  ],
+  accessors: [
+    rule("Property[kind=/^(get|set)$/]", 'a fact is data: a field is read, not computed'),
+    rule('Property[method=true]', 'a fact is data: a function is not a field'),
   ],
   // filter, find, some and every classify by a predicate and lose the other
   // cases; partition keeps every case under its name.
@@ -121,6 +135,10 @@ const rules = {
     rule(
       "MemberExpression[object.name='Symbol'][property.name=/^(for|keyFor)$/], MemberExpression[object.name='Symbol'][property.value=/^(for|keyFor)$/]",
       'an authority is minted by its owner with Symbol(…); a registry symbol is anyone who knows the string',
+    ),
+    rule(
+      "MemberExpression[object.name='z'][property.name='custom'], MemberExpression[object.name='z'][property.value='custom'], ImportDeclaration[source.value='zod'] > ImportSpecifier[imported.name='custom']",
+      'a boundary parses; z.custom declares a type and parses nothing, returning the input as it came',
     ),
   ],
   // An effect is performed in effects/ and reaches the domain as a parameter
@@ -261,7 +279,7 @@ export default [
     files: ['**/boundary/**/*.ts'],
     ignores: ['**/*.test.ts'],
     rules: {
-      'no-restricted-syntax': syntax(...except('conditionals', 'comparisons', 'classification', 'unknown', 'predicates', 'brackets')),
+      'no-restricted-syntax': syntax(...except('conditionals', 'comparisons', 'classification', 'partial', 'unknown', 'predicates', 'brackets')),
       'no-restricted-imports': boundaryImports,
       'no-restricted-globals': boundaryGlobals,
       'local/directives-are-gates': 'error',
@@ -301,7 +319,7 @@ export default [
     // its predicates, optional methods and thrown classes once each
     files: ['**/effects/**/foreign.ts'],
     rules: {
-      'no-restricted-syntax': syntax(...except('conditionals', 'comparisons', 'classification', 'indirection', 'exceptions', 'loops', 'unknown', 'predicates', 'holes', 'absence', 'sums', 'effects', 'brackets', 'spreads')),
+      'no-restricted-syntax': syntax(...except('conditionals', 'comparisons', 'classification', 'indirection', 'partial', 'accessors', 'exceptions', 'loops', 'unknown', 'predicates', 'holes', 'absence', 'sums', 'effects', 'brackets', 'spreads')),
       'local/directives-are-gates': 'error',
     },
   },
@@ -310,7 +328,7 @@ export default [
     files: ['**/effects/**/*.ts'],
     ignores: ['**/effects/**/foreign.ts', '**/*.test.ts'],
     rules: {
-      'no-restricted-syntax': syntax(...except('conditionals', 'comparisons', 'classification', 'indirection', 'exceptions', 'loops', 'unknown', 'effects', 'brackets')),
+      'no-restricted-syntax': syntax(...except('conditionals', 'comparisons', 'classification', 'indirection', 'partial', 'exceptions', 'loops', 'unknown', 'effects', 'brackets')),
       'no-restricted-imports': imports,
       'no-restricted-globals': effectsGlobals,
       'local/directives-are-gates': 'error',

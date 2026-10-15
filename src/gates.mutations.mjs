@@ -36,5 +36,15 @@ export const mutations = [
   ],
   ['drop the readonly requirement from boundary', edit('src/boundary/boundary.ts', 'Immutable<z.output<S>> extends true ?', 'true extends true ?')],
   ['drop the total requirement from boundary', edit('src/boundary/boundary.ts', 'Total<z.output<S>> extends true ?', 'true extends true ?')],
-  ['let seal return anything', edit('src/boundary/boundary.ts', 'seal: (parsed: z.output<S>) => F & Fact<F>)', 'seal: (parsed: z.output<S>) => F)')],
+  [
+    'let a sealed payload widen',
+    edit('src/sealed.ts', '  readonly #same = (x: T): T => x;\n', '  readonly #same = (x: object): object => x;\n'),
+    edit('src/sealed.ts', /x\.#same\(x\.#value\)/g, 'x.#value'),
+  ],
+  ['let sealing seal a non-fact', edit('src/boundary/boundary.ts', 'seal: (fact: F) => Sealed<Tag, P, U> & Fact<P>)', 'seal: (fact: F) => Sealed<Tag, P, U>)')],
+  [
+    'let sealing accept an unsealed value',
+    edit('src/boundary/boundary.ts', 'seal: (fact: F) => Sealed<Tag, P, U> & Fact<P>): Boundary<Sealed<Tag, P, U>>', 'seal: (fact: F) => P & Fact<P>): Boundary<P>'),
+    edit('src/boundary/boundary.ts', 'fold<Parse<F>, Variant<Parse<Sealed<Tag, P, U>>>>', 'fold<Parse<F>, Variant<Parse<P>>>'),
+  ],
 ];

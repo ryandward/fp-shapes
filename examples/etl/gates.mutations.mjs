@@ -9,9 +9,8 @@ const edit = (file, from, to) => ({ file, from, to });
 export const mutations = [
   ['export the retry authority', edit('examples/etl/retry.ts', 'const RETRY: unique symbol', 'export const RETRY: unique symbol')],
   [
-    'let load accept any stage',
-    edit('examples/etl/effects/load.ts', "Staged<'transformed', Row>", 'Staged<Stage, Row>'),
-    edit('examples/etl/effects/load.ts', 'import { batchOf, rowsOf, type Staged }', 'import { batchOf, rowsOf, type Stage, type Staged }'),
+    'let load accept extracted rows',
+    edit('examples/etl/effects/load.ts', "Staged<'transformed', Row>", "Staged<'extracted', Row>"),
   ],
   ['make a fact sparse', edit('examples/etl/boundary/file-status.ts', 'stale: z.boolean().default(false)', 'stale: z.boolean().optional()')],
   [

@@ -13,12 +13,16 @@ const LEDGER: unique symbol = Symbol('ledger');
 
 export type Entry = { readonly batch: BatchId; readonly written: number };
 
-export type Ledger = Sealed<typeof LEDGER, { readonly loads: ReadonlyArray<Entry> }>;
+type Loads = { readonly loads: ReadonlyArray<Entry> };
+export type Ledger = Sealed<typeof LEDGER, Loads>;
 
-export const emptyLedger: Ledger = new Sealed(LEDGER, { loads: [] }, 'open');
+// The payload is built at its declared type; a sealed payload is exactly that type.
+const loads = (entries: ReadonlyArray<Entry>): Loads => ({ loads: entries });
+
+export const emptyLedger: Ledger = new Sealed(LEDGER, loads([]), 'open');
 
 const merge = (ledger: Ledger, entry: Entry): Ledger =>
-  new Sealed(LEDGER, { loads: [...Sealed.open(LEDGER, ledger).loads, entry] }, 'open');
+  new Sealed(LEDGER, loads([...Sealed.open(LEDGER, ledger).loads, entry]), 'open');
 
 export type Settlement = Variant<{
   settled: { readonly ledger: Ledger };

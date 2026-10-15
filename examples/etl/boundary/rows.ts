@@ -15,4 +15,4 @@ const rawRow = z
 
 export type RawRow = z.output<typeof rawRow>;
 
-export const parseRawRow: Boundary<RawRow> = boundary(rawRow, (row) => row);
+export const parseRawRow: Boundary<RawRow> = boundary(rawRow);

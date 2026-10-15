@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.5.9
+
+K1 established: a boundary's fact is the schema's output and nothing else.
+
+- `boundary(schema)` no longer takes a `seal`. The one function of the
+  caller's that stood between the parse and the fact could return a value
+  with keys the declared fact type lacks, unfrozen, and TypeScript accepted
+  it. The fact is now the schema's output: a fresh object with exactly the
+  declared keys (`z.object` drops undeclared string keys, `z.strictObject`
+  refuses them, neither copies a symbol key), frozen by the kernel all the
+  way down whatever the schema's form, a `transform`'s output included.
+- `sealing(parse, seal)` composes an owner's seal over a boundary; `seal`
+  must return a sealed value whose payload is a fact (`Fact<P>`).
+- `Sealed` is invariant in its payload: a sealed value of a wider payload
+  is not a sealed value of the narrower type, so a value cannot widen by
+  being sealed, and a payload is exactly what its owner constructed.
+  Owners build payloads at their declared types (the ETL ledger's `loads`).
+- Lint: `z.custom` and its import are refused (it declares a type and
+  returns the input unparsed); the domain refuses `in`, `instanceof`,
+  `Boolean(…)` and the yes-or-no methods of built-ins (`startsWith`,
+  `includes`, `has`, `test`, `isNaN`, `isArray`, `hasOwn`, …), since an
+  inferred boolean from one is a decision the predicate rule could not
+  see; `JSON.stringify` is refused in the domain (it throws on a `bigint`,
+  a fact leaf) and removed from the spec's allowlist, which now admits only
+  operations total on fact inputs; accessors and methods in an object
+  literal are refused in domain and boundary.
+- Gates: a wider payload refused where a sealed type is declared; `sealing`
+  refuses an unsealed return and a non-fact payload; three mutations.
+  Tests: fresh object with declared keys only, strict rejection, frozen
+  through a transform, sealed payload exact and frozen.
+- `fixtures/open/inferred-boolean.ts`: the boolean the syntax tier cannot
+  see, produced by a reader in `effects/`; the checker's rule is stated.
+
 ## 0.5.8
 
 - `SPEC.md`: the contract. The checker's judgment (facts Γ, linear

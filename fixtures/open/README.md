@@ -13,3 +13,8 @@ listed here so the hole is visible rather than assumed closed.
   function. Closed by effects as commands: the domain returns a command
   case and the interpreter in `effects/` performs it, so no domain code
   calls a function-typed parameter, and a scope rule refuses the call.
+- `inferred-boolean.ts`: a boolean produced by an `open…` reader in
+  `effects/`, where comparisons are permitted, and imported into the
+  domain, which then holds a decision it did not make as a `Variant`.
+  Closed by the checker: no expression of type `boolean` is produced in
+  the domain except by reading a boolean field of a fact.

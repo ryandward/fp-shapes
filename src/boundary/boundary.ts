@@ -10,8 +10,9 @@
 // by reference.
 
 import type { z } from 'zod';
+import { frozen, type Sealed, type Use } from '../sealed.js';
 import type { Deep, Immutable, Recursive, Total } from '../total.js';
-import type { NonEmpty, Variant } from '../variant.js';
+import { fold, type NonEmpty, type Variant } from '../variant.js';
 
 export type Issue = {
   readonly path: string;
@@ -51,20 +52,36 @@ const issuesOf = (error: z.ZodError): NonEmpty<Issue> => {
   return first === undefined ? [{ path: '', message: 'invalid input' }] : [first, ...rest];
 };
 
-// What the owner makes of the parsed value is a fact too: total and readonly,
-// plain or sealed. The callback's return is checked where it is written.
+// A boundary's fact is the schema's output and nothing else: zod builds a
+// fresh object holding the declared keys (string and symbol extras are never
+// copied; `strictObject` refuses the string ones), and the kernel freezes it
+// all the way down, so the fact is exact and frozen whatever the schema's
+// form. No function of the caller's stands between the parse and the fact.
+const fact = <F>(parsed: F): F => (typeof parsed === 'object' && parsed !== null ? frozen(parsed) : parsed);
+
+export const boundary =
+  <S extends z.ZodType>(schema: S & TotalSchema<S>): Boundary<z.output<S>> =>
+  (raw) => {
+    const result = schema.safeParse(raw);
+    return result.success ?
+        { kind: 'accepted', fact: fact(result.data) }
+      : { kind: 'rejected', issues: issuesOf(result.error) };
+  };
+
+// What an owner makes of a parsed fact is a sealed value whose payload is a
+// fact: total and readonly, checked where the seal is written. The payload
+// is exactly what the owner constructed, because Sealed is invariant in it.
 export type Fact<F> =
   Total<F> extends true ?
     Immutable<F> extends true ?
       unknown
-    : Needs<'a readonly fact from seal: every property readonly, every array a ReadonlyArray'>
-  : Needs<'a total fact from seal: no optional, undefined, unknown, any, function or open object'>;
+    : Needs<'a readonly payload: every property readonly, every array a ReadonlyArray'>
+  : Needs<'a total payload: no optional, undefined, unknown, any, function or open object'>;
 
-export const boundary =
-  <S extends z.ZodType, F>(schema: S & TotalSchema<S>, seal: (parsed: z.output<S>) => F & Fact<F>): Boundary<F> =>
-  (raw) => {
-    const result = schema.safeParse(raw);
-    return result.success ?
-        { kind: 'accepted', fact: seal(result.data) }
-      : { kind: 'rejected', issues: issuesOf(result.error) };
-  };
+export const sealing =
+  <F, Tag extends symbol, P extends object, U extends Use>(parse: Boundary<F>, seal: (fact: F) => Sealed<Tag, P, U> & Fact<P>): Boundary<Sealed<Tag, P, U>> =>
+  (raw) =>
+    fold<Parse<F>, Variant<Parse<Sealed<Tag, P, U>>>>({
+      accepted: ({ fact }) => ({ kind: 'accepted', fact: seal(fact) }),
+      rejected: ({ issues }) => ({ kind: 'rejected', issues }),
+    })(parse(raw));

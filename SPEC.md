@@ -36,11 +36,20 @@ sealed value is read through to its payload. These are compile-time gates
 A fact *value* of type `F` has exactly the keys `F` declares, at every
 level. Values enter the domain from three places, and each is exact:
 
-- **K1, a boundary parse.** `boundary(schema, seal)` accepts a schema whose
-  output is total and readonly (`TotalSchema`), and a `seal` whose return
-  is a total, readonly fact (`Fact<F>`); zod's `strictObject` refuses keys
-  the schema lacks, `.readonly()` freezes each level, and `seal` is
-  boundary code checked like any other. Holds today.
+- **K1, a boundary parse.** `boundary(schema)` accepts a schema whose
+  output is total and readonly (`TotalSchema`) and returns that output and
+  nothing else: zod builds a fresh object holding the declared keys
+  (`z.object` drops undeclared string keys, `z.strictObject` refuses them
+  as a rejection, and neither copies a symbol key), and the kernel freezes
+  the fact all the way down whatever the schema's form, so a `transform`'s
+  output is frozen too. No function of the caller's stands between the
+  parse and the fact. `z.custom`, which declares a type and returns the
+  input unparsed, is refused by lint. What an owner makes of a parsed fact
+  goes through `sealing(parse, seal)`, where `seal` must return a sealed
+  value whose payload is a fact (`Fact<P>`), and `Sealed` is invariant in
+  its payload, so the payload is exactly what the owner constructed. Holds
+  today; the runtime half is tested (fresh object, declared keys only,
+  frozen through a transform, sealed payload frozen).
 - **C1, a fresh literal.** TypeScript checks a fresh object literal for
   excess keys. The check does not reach spread members, so an object
   spread or rest pattern is refused in the domain, boundary and effects
@@ -70,10 +79,18 @@ exact and every step preserves it.
 A sum is `Variant<M>`: a map from case name to the case's own fields, each
 case refusing every other case's fields. Its only eliminator in the domain
 is `fold`, whose `Cases<M, R>` requires a handler for every key (C2, held by
-the compiler). No comparison, negation, predicate, `if`, `switch`, `?:`,
-`??`, `||`, `&&`, `filter`, `find`, `some` or `every` exists in the domain
-(syntax tier, holds today); sameness of facts is `compare`, a boundary
-decision returning a `Variant`.
+the compiler). The domain produces no boolean as a decision. The syntax
+tier refuses the forms that produce one: `if`, `switch`, `?:`, `??`, `||`,
+`&&`, `!`, every comparison operator including `in` and `instanceof`,
+`Boolean(…)`, the yes-or-no methods of built-ins (`startsWith`, `includes`,
+`has`, `test`, `isNaN`, `isArray`, `hasOwn`, …), an annotated boolean
+return, and `filter`, `find`, `some`, `every`. What it cannot see is a
+boolean produced by a reader in `effects/` and imported, or by a
+function whose return is inferred through such a call; the checker's rule
+is that no expression of type `boolean` is produced in the domain except
+by reading a boolean field of a fact (**not yet enforced**;
+`fixtures/open/inferred-boolean.ts`). Sameness of facts is `compare`, a
+boundary decision returning a `Variant`.
 
 A `fold` handler is checked under the same Γ, Δ and E as the function that
 contains it: it is domain code, and it runs exactly once on exactly one
@@ -88,9 +105,16 @@ E(e) is computed by inference over calls:
   `compare`, `Sealed.open`) has E = ∅; `Sealed.spend` has E = ∅ and the
   linear effect of §4;
 - a domain function has the E of its body;
-- an allowlisted method of a built-in value has E = ∅ (`map`, `flatMap`,
-  `reduce`, `concat`, `slice`, `join`, `length`, the pure `String`,
-  `Number`, `Math` (not `random`) and `JSON.stringify` operations);
+- an allowlisted operation of a built-in value has E = ∅. The allowlist
+  holds only operations that are total on fact inputs: they do not throw,
+  invoke no callback other than a domain function checked under this
+  judgment (`map`, `flatMap`, `reduce` take one), and read no accessor
+  (facts have none; the syntax tier refuses `get`, `set` and methods in a
+  literal). `concat`, `slice`, `join`, `length`, `map`, `flatMap`,
+  `reduce`, the `String` and `Number` operations that return on every
+  input, `Math` without `random`. `JSON.stringify` is not on it: it throws
+  on a `bigint`, which is a fact leaf, and the syntax tier refuses it in
+  the domain; serialization is an edge's job;
 - any other call has E = ⊤: a function-typed parameter, a method of a
   value whose type is not a fact, an import from `effects/` other than an
   `open…`/`spend…` reader, an import from `node_modules`, a `Promise`
@@ -140,7 +164,9 @@ so nothing is dropped silently on the paths the static rule cannot see
 
 Assumed by the theorem, tested in `test/`:
 
-- K1 `boundary`: output exact, frozen, total, readonly; `seal` returns a
+- K1 `boundary`: output is the schema's output, a fresh object holding
+  exactly the declared keys, frozen by the kernel all the way down;
+  `sealing` returns an owner's sealed value whose payload is exactly a
   fact.
 - K2 `Sealed`: constructed only by the holder of its tag; `open` returns
   the payload of held evidence; `spend` returns the payload of spent

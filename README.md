@@ -171,13 +171,13 @@ settings make it so, with the tools already in the tree:
 | `NonEmpty<T>` + `mapNonEmpty` | `src/variant.ts` | evidence as a value | `array[0]` + `if (!head)` |
 | `Partition<M>` + `partition` | `src/variant.ts` | one classification, every case kept, every bucket named | `filter`, `find`, `some`, `every` |
 | `Occupancy<T>` + `occupancy` | `src/boundary/evidence.ts` | the one look at `.length`; elements are defined values, by the signature | `if (xs.length === 0)` downstream |
-| `Sealed<Tag, T, Use>` + `Sealed.open` / `Sealed.spend` | `src/sealed.ts` | who sealed it, and whether it is held (`'open'`: read any number of times) or spent (`'spend'`: read once, by the reader that consumes it); the reads re-check the brand at runtime, `spend` halts on a second read, and the payload is frozen at seal time, all the way down | symbol-branded objects; a receipt or token used twice |
+| `Sealed<Tag, T, Use>` + `Sealed.open` / `Sealed.spend` | `src/sealed.ts` | who sealed it, and whether it is held (`'open'`: read any number of times) or spent (`'spend'`: read once, by the reader that consumes it); the payload type is exactly what the owner sealed (invariant), the reads re-check the brand at runtime, `spend` halts on a second read, and the payload is frozen at seal time, all the way down | symbol-branded objects; a receipt or token used twice; a wider value sealed as a narrower type |
 | `Decide<F, A, M>` | `src/sealed.ts` | an owner's decision: facts in, sealed verdict out | decision functions returning plain objects |
 | `compare` + `Comparison` | `src/boundary/compare.ts` | the one structural comparison: two facts are the same when every leaf is, by `Object.is`; a difference carries the path to the first leaf that differs; sealed values compare by identity | `===` on records, which is identity; `JSON.stringify(a) === JSON.stringify(b)` |
 | `Total<T>` | `src/total.ts` | completeness: no `?:`, `undefined`, `unknown`, `any`, `never`, function, index signature, `Date`, or open object (`{}`, `object`); exclusion keys (`k?: never`) are not holes; a type that contains its own kind answers `Recursive<T>` and one that nests past four containers answers `Deep<T>`, each naming the property; a sealed value is read through to its payload, so sealing a shape does not hide it | trusting `z.output` to be complete |
 | `Immutable<T>` | `src/total.ts` | every property readonly, every array a `ReadonlyArray`, all the way down; recursion answers `Recursive<T>`, depth `Deep<T>` | mutable schema outputs |
 | `Exact<A, B>` | `src/total.ts` | correspondence: both total, same keys, mutually assignable | a key-set comparison at one level |
-| `Boundary<F>`, `Parse<F>`, `boundary`, `TotalSchema`, `Fact` | `src/boundary/boundary.ts` | the only shape that accepts `unknown`; a boundary schema has a total, readonly output, and what `seal` makes of it is a total, readonly fact, both checked at the definition | ad-hoc parsing; `JSON.parse as T`; per-schema assertions |
+| `Boundary<F>`, `Parse<F>`, `boundary`, `sealing`, `TotalSchema`, `Fact` | `src/boundary/boundary.ts` | the only shape that accepts `unknown`; a boundary's fact is the schema's output and nothing else, checked total and readonly at the definition and frozen by the kernel at runtime; `sealing` composes an owner's seal whose payload is exactly a fact | ad-hoc parsing; `JSON.parse as T`; per-schema assertions; `z.custom` |
 | `Outcome<T>`, `Tried<T>`, `attempt` | `src/effects/attempt.ts` | the one `try`; a thrown value becomes a case at the effect boundary. `attempt` is imported from this file by effects modules; the index carries the types | `try` in the domain; `void` effects |
 | `Assert`, `Equal` | `src/total.ts` | compile-time assertions | — |
 
@@ -193,13 +193,18 @@ definition; `Exact` stays for a repo that keeps one.
 ## zod, and where it lives
 
 A `boundary/` directory is the only place that imports it. Three features
-carry the design: `.brand()` for identifiers, `.default()` / `.nullable()`
-to decide every absence once (Zod 4: `.default()` returns its value unparsed
-when the key is absent, so write defaults in output form; `.prefault()`
-parses them), and `.readonly()`, which both types the output readonly and
-freezes it at runtime. `strictObject` on external sources turns schema drift
-into a `rejected` fact with an issue; for persisted rows, choose
-deliberately whether retired fields are drift or history.
+carry the design: `.brand()` for identifiers (a static brand only; zod
+says so, and provenance at runtime is `Sealed`), `.default()` /
+`.nullable()` to decide every absence once (Zod 4: `.default()` returns its
+value unparsed when the key is absent, so write defaults in output form;
+`.prefault()` parses them), and `.readonly()`, which types the output
+readonly; the kernel freezes the fact at runtime whatever the schema did.
+`z.object` drops undeclared string keys and `z.strictObject` refuses them
+as a rejection with an issue; neither copies a symbol key; use
+`strictObject` on external sources so drift is a fact, and for persisted
+rows choose deliberately whether retired fields are drift or history.
+`z.discriminatedUnion` parses a tagged outcome straight into a `Variant`.
+`z.custom` declares a type and parses nothing; lint refuses it.
 
 ## Enforcement
 
@@ -279,11 +284,11 @@ subject to a rule.
 `npm run check` runs all four on TypeScript 5.9.3, zod 4.6, ESLint 9, Node
 22: strict `tsc` (plus `exactOptionalPropertyTypes`,
 `noUncheckedIndexedAccess`, `noUnusedLocals`) over the library, the examples
-and the tests; lint; 134 rule fixtures (104 for the domain and primitives
-tiers, 15 for the boundary tier, 13 for the effects and foreign tiers, 2
-for the ETL example), every one of the 87 rules proved by one; no `.d.ts`
-under `src`; 29 mutations (20 against the library's gates, 9 against the
-examples'); 56 runtime tests.
+and the tests; lint; 144 rule fixtures (110 for the domain and primitives
+tiers, 18 for the boundary tier, 14 for the effects and foreign tiers, 2
+for the ETL example), every one of the 93 rules proved by one; no `.d.ts`
+under `src`; 31 mutations (22 against the library's gates, 9 against the
+examples'); 60 runtime tests.
 
 ## Examples
 

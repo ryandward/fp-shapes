@@ -8,7 +8,7 @@
 import { z } from 'zod';
 import { Sealed } from '../../../src/sealed.js';
 import type { Variant } from '../../../src/variant.js';
-import { boundary, type Boundary } from '../../../src/boundary/boundary.js';
+import { boundary, sealing, type Boundary } from '../../../src/boundary/boundary.js';
 
 const FILE_STATUS: unique symbol = Symbol('file-status');
 
@@ -45,10 +45,9 @@ const classify = (row: StoredFile): Variant<Status> =>
   : row.stale ? { kind: 'stale', file: row.file }
   : { kind: 'current', file: row.file };
 
-export const parseFileStatus: Boundary<FileStatus> = boundary(
-  stored,
-  (row) => new Sealed(FILE_STATUS, classify(row), 'open'),
-);
+const parseStoredFile: Boundary<StoredFile> = boundary(stored);
+
+export const parseFileStatus: Boundary<FileStatus> = sealing(parseStoredFile, (row) => new Sealed(FILE_STATUS, classify(row), 'open'));
 
 // The domain reads a fact through its boundary's opener, never through a field.
 export const statusOf = (fact: FileStatus): Variant<Status> => Sealed.open(FILE_STATUS, fact);

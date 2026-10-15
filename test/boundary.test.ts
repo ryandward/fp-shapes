@@ -5,12 +5,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { z } from 'zod';
-import { boundary } from '../src/boundary/boundary.js';
+import { boundary, sealing } from '../src/boundary/boundary.js';
+import { Sealed } from '../src/sealed.js';
 import { occupancy } from '../src/boundary/evidence.js';
 import { attempt } from '../src/effects/attempt.js';
 import { partition, type Classify } from '../src/variant.js';
 
-const point = boundary(z.object({ x: z.number(), y: z.number().default(0) }).readonly(), (p) => p);
+const point = boundary(z.object({ x: z.number(), y: z.number().default(0) }).readonly());
 
 test('an accepted fact is frozen and total', () => {
   const parsed = point({ x: 1 });
@@ -18,6 +19,47 @@ test('an accepted fact is frozen and total', () => {
   if (parsed.kind !== 'accepted') return;
   assert.deepEqual(parsed.fact, { x: 1, y: 0 });
   assert.ok(Object.isFrozen(parsed.fact));
+});
+
+test('the fact is a fresh object holding the declared keys: string and symbol extras are never copied', () => {
+  const extra = Symbol('extra');
+  const input = { x: 1, hidden: 2, [extra]: 3 };
+  const parsed = point(input);
+  if (parsed.kind !== 'accepted') throw new Error('fixture must parse');
+  assert.notEqual(parsed.fact, input);
+  assert.deepEqual(Object.keys(parsed.fact), ['x', 'y']);
+  assert.equal(Object.getOwnPropertySymbols(parsed.fact).length, 0);
+});
+
+test('a strict schema refuses an undeclared string key as a rejection with its path', () => {
+  const strict = boundary(z.strictObject({ x: z.number() }).readonly());
+  const parsed = strict({ x: 1, hidden: 2 });
+  assert.equal(parsed.kind, 'rejected');
+  if (parsed.kind === 'rejected') assert.equal(parsed.issues[0].path, '');
+});
+
+test('the kernel freezes the fact all the way down, including what a transform builds', () => {
+  const built = boundary(
+    z
+      .object({ x: z.number() })
+      .readonly()
+      .transform((p): { readonly x: number; readonly tags: ReadonlyArray<{ readonly t: string }> } => ({ x: p.x, tags: [{ t: 'a' }] })),
+  );
+  const parsed = built({ x: 1 });
+  if (parsed.kind !== 'accepted') throw new Error('fixture must parse');
+  assert.ok(Object.isFrozen(parsed.fact));
+  assert.ok(Object.isFrozen(parsed.fact.tags));
+  assert.ok(Object.isFrozen(parsed.fact.tags[0]));
+});
+
+test('sealing seals exactly the parsed fact, and the sealed payload is frozen', () => {
+  const TAG: unique symbol = Symbol('point');
+  const sealed = sealing(point, (p) => new Sealed(TAG, p, 'open'));
+  const parsed = sealed({ x: 2 });
+  if (parsed.kind !== 'accepted') throw new Error('fixture must parse');
+  const payload = Sealed.open(TAG, parsed.fact);
+  assert.deepEqual(payload, { x: 2, y: 0 });
+  assert.ok(Object.isFrozen(payload));
 });
 
 test('a rejected parse carries at least one issue, with a path', () => {

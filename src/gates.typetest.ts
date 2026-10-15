@@ -12,7 +12,7 @@
 // particular receipt) live beside the application; see examples/*/gates.typetest.ts.
 
 import { z } from 'zod';
-import { boundary } from './boundary/boundary.js';
+import { boundary, sealing, type Boundary } from './boundary/boundary.js';
 import { occupancy } from './boundary/evidence.js';
 import { Sealed } from './sealed.js';
 import type { Assert, Equal, Exact, Immutable, Total } from './total.js';
@@ -78,23 +78,30 @@ export const nothing = occupancy([undefined]);
 
 // --- a boundary schema is total and readonly ----------------------------------
 
-// The schema and the seal are checked separately, so each gate's seal returns
-// a fact the other check accepts and only the check under test refuses it.
-
 // @ts-expect-error a boundary schema decides every absence (.default() or .nullable())
-export const sparse = boundary(z.object({ a: z.string().optional() }).readonly(), (x): { readonly a: string } => ({ a: x.a ?? '' }));
+export const sparse = boundary(z.object({ a: z.string().optional() }).readonly());
 
 // @ts-expect-error a boundary schema declares .readonly()
-export const mutable = boundary(z.object({ a: z.string() }), (x): { readonly a: string } => ({ a: x.a }));
-
-// @ts-expect-error what seal makes of the parsed value is a total fact
-export const sparseSeal = boundary(z.object({ a: z.string() }).readonly(), (x): { readonly a?: string } => x);
-
-// @ts-expect-error what seal makes of the parsed value is a readonly fact
-export const mutableSeal = boundary(z.object({ a: z.string() }).readonly(), (x): { a: string } => ({ a: x.a }));
+export const mutable = boundary(z.object({ a: z.string() }));
 
 // @ts-expect-error a boundary schema's output nests through at most four containers
-export const nested = boundary(z.object({ a: z.object({ b: z.object({ c: z.array(z.object({ d: z.string() }).readonly()).readonly() }).readonly() }).readonly() }).readonly(), (x) => x);
+export const nested = boundary(z.object({ a: z.object({ b: z.object({ c: z.array(z.object({ d: z.string() }).readonly()).readonly() }).readonly() }).readonly() }).readonly());
+
+// --- what an owner seals is exactly what it declares ----------------------------
+
+type IdFact = { readonly id: string };
+declare const parseIdFact: Boundary<IdFact>;
+
+// @ts-expect-error a sealed payload is exactly the declared type; a wider one is not sealed as it
+export const widened: Sealed<typeof _A, IdFact> = new Sealed(_A, { id: 'a', hidden: 1 }, 'open');
+
+// @ts-expect-error sealing takes a seal that returns a sealed value; a plain fact, however total, is not one
+export const unsealed = sealing(parseIdFact, (f): IdFact => f);
+
+// @ts-expect-error a sealed payload is a fact: total and readonly
+export const dated = sealing(parseIdFact, (f) => new Sealed(_A, { id: f.id, when: new Date() }, 'open'));
+
+export const sealedId: Boundary<Sealed<typeof _A, IdFact>> = sealing(parseIdFact, (f) => new Sealed(_A, f, 'open'));
 
 // --- a fact is finite ---------------------------------------------------------
 

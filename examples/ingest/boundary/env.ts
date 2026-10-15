@@ -5,7 +5,4 @@
 import { z } from 'zod';
 import { boundary, type Boundary } from '../../../src/boundary/boundary.js';
 
-export const parseMaxConcurrentImports: Boundary<number> = boundary(
-  z.coerce.number().int().positive().default(5),
-  (n) => n,
-);
+export const parseMaxConcurrentImports: Boundary<number> = boundary(z.coerce.number().int().positive().default(5));

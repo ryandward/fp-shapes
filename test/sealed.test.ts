@@ -12,7 +12,8 @@ const AUTHORITY: unique symbol = Symbol('authority');
 type Verdict = { readonly kind: 'go' | 'stop'; readonly reasons: readonly string[] };
 type Decision = Sealed<typeof AUTHORITY, Verdict>;
 
-const decide = (): Decision => new Sealed(AUTHORITY, { kind: 'go', reasons: ['tests pass'] }, 'open');
+const verdict: Verdict = { kind: 'go', reasons: ['tests pass'] };
+const decide = (): Decision => new Sealed(AUTHORITY, verdict, 'open');
 const open = (d: Decision): Verdict => Sealed.open(AUTHORITY, d);
 
 test('a genuine value opens to its payload', () => {
