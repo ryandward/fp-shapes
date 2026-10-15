@@ -27,7 +27,7 @@ export const copied: RetryDecision = { ...genuine };
 export const peeked = genuine.value;
 
 // @ts-expect-error a decision is issued by retry.ts
-export const forged: RetryDecision = new Sealed(Symbol('retry'), { kind: 'none' });
+export const forged: RetryDecision = new Sealed(Symbol('retry'), { kind: 'none' }, 'open');
 
 // --- stages advance in order; writers take receipts ---------------------------
 

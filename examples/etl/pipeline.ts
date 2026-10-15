@@ -28,14 +28,14 @@ export type Staged<S extends Stage, T> = Sealed<typeof STAGE, StagedValue<S, T>>
 export type Step<S extends keyof Next, A, B> = (input: Staged<S, A>) => Staged<Next[S], B>;
 
 export const begin = <A>(batch: BatchId, rows: NonEmpty<A>): Staged<'extracted', A> =>
-  new Sealed(STAGE, { batch, stage: 'extracted', rows });
+  new Sealed(STAGE, { batch, stage: 'extracted', rows }, 'open');
 
 export const step =
   <S extends keyof Next>(from: S) =>
   <A, B>(f: (rows: NonEmpty<A>) => NonEmpty<B>): Step<S, A, B> =>
   (input) => {
     const { batch, rows } = Sealed.open(STAGE, input);
-    return new Sealed(STAGE, { batch, stage: next[from], rows: f(rows) });
+    return new Sealed(STAGE, { batch, stage: next[from], rows: f(rows) }, 'open');
   };
 
 export const rowsOf = <S extends Stage, T>(staged: Staged<S, T>): NonEmpty<T> =>

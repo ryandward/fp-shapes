@@ -30,9 +30,11 @@ const CLAIM: unique symbol = Symbol('claim');
 const FENCE: unique symbol = Symbol('fenced');
 const FINAL: unique symbol = Symbol('finalized');
 
-export type Claim = Sealed<typeof CLAIM, { readonly fileId: string; readonly token: string }>;
-export type Fenced = Sealed<typeof FENCE, { readonly fileId: string; readonly bytes: number }>;
-export type Finalized = Sealed<typeof FINAL, { readonly fileId: string }>;
+// A claim is held through the attempt; a fence receipt is finalized once and
+// a finalized receipt is settled once, so those two are sealed for one read.
+export type Claim = Sealed<typeof CLAIM, { readonly fileId: string; readonly token: string }, 'open'>;
+export type Fenced = Sealed<typeof FENCE, { readonly fileId: string; readonly bytes: number }, 'spend'>;
+export type Finalized = Sealed<typeof FINAL, { readonly fileId: string }, 'spend'>;
 
 export type Effects = IngestEffects<LockIdentity, Claim, Fenced, Finalized>;
 
@@ -152,7 +154,7 @@ export const adapt = (foreign: Foreign): Effects => {
     claim: (fileId, lock) =>
       attempt(() => foreign.claimFile(fileId, lock.workerId)).then(
         fold<Tried<string>, Variant<ClaimOutcome<Claim>>>({
-          ok: ({ value }) => ({ kind: 'claimed', claim: new Sealed(CLAIM, { fileId, token: value }) }),
+          ok: ({ value }) => ({ kind: 'claimed', claim: new Sealed(CLAIM, { fileId, token: value }, 'open') }),
           failed: ({ error }) => died(error),
         }),
       ),
@@ -167,7 +169,7 @@ export const adapt = (foreign: Foreign): Effects => {
       const { fileId, token } = Sealed.open(CLAIM, claim);
       return underFence(fileId, { kind: 'measured', sizeBytes: bytes }, token).then(
         fold<Guarded, Variant<FenceOutcome<Fenced>>>({
-          held: () => ({ kind: 'held', fenced: new Sealed(FENCE, { fileId, bytes }) }),
+          held: () => ({ kind: 'held', fenced: new Sealed(FENCE, { fileId, bytes }, 'spend') }),
           revoked: () => ({ kind: 'revoked' }),
           died: (d) => d,
         }),
@@ -175,10 +177,10 @@ export const adapt = (foreign: Foreign): Effects => {
     },
 
     finalize: (fenced) => {
-      const { fileId } = Sealed.open(FENCE, fenced);
+      const { fileId } = Sealed.spend(FENCE, fenced);
       return attempt(() => foreign.finalizeAfterBytes(fileId)).then(
         fold<Tried<Awaited<ReturnType<Foreign['finalizeAfterBytes']>>>, Variant<FinalizeOutcome<Finalized>>>({
-          ok: ({ value }) => (value.ok ? { kind: 'finalized', finalized: new Sealed(FINAL, { fileId }) } : rejectedBy(value.cause)),
+          ok: ({ value }) => (value.ok ? { kind: 'finalized', finalized: new Sealed(FINAL, { fileId }, 'spend') } : rejectedBy(value.cause)),
           failed: ({ error }) => died(error),
         }),
       );
@@ -186,7 +188,7 @@ export const adapt = (foreign: Foreign): Effects => {
 
     settle: (claim, finalized) => {
       const { fileId, token } = Sealed.open(CLAIM, claim);
-      const { fileId: finalizedFileId } = Sealed.open(FINAL, finalized);
+      const { fileId: finalizedFileId } = Sealed.spend(FINAL, finalized);
       return fileId === finalizedFileId ?
           underFence(fileId, { kind: 'settled' }, token).then(
             fold<Guarded, Variant<SettleOutcome>>({

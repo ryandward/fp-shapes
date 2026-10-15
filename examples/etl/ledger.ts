@@ -7,7 +7,7 @@
 import type { BatchId } from './boundary/batch.js';
 import { Sealed } from '../../src/sealed.js';
 import { fold, type Variant } from '../../src/variant.js';
-import { openLoadFor, type LoadReceipt, type Settled } from './effects/load.js';
+import { spendLoadFor, type LoadReceipt, type Settled } from './effects/load.js';
 
 const LEDGER: unique symbol = Symbol('ledger');
 
@@ -15,10 +15,10 @@ export type Entry = { readonly batch: BatchId; readonly written: number };
 
 export type Ledger = Sealed<typeof LEDGER, { readonly loads: ReadonlyArray<Entry> }>;
 
-export const emptyLedger: Ledger = new Sealed(LEDGER, { loads: [] });
+export const emptyLedger: Ledger = new Sealed(LEDGER, { loads: [] }, 'open');
 
 const merge = (ledger: Ledger, entry: Entry): Ledger =>
-  new Sealed(LEDGER, { loads: [...Sealed.open(LEDGER, ledger).loads, entry] });
+  new Sealed(LEDGER, { loads: [...Sealed.open(LEDGER, ledger).loads, entry] }, 'open');
 
 export type Settlement = Variant<{
   settled: { readonly ledger: Ledger };
@@ -29,6 +29,6 @@ export const settle = (ledger: Ledger, batch: BatchId, receipt: LoadReceipt): Se
   fold<Settled, Settlement>({
     matched: ({ written }) => ({ kind: 'settled', ledger: merge(ledger, { batch, written }) }),
     mismatched: ({ expected, actual }) => ({ kind: 'refused', expected, actual }),
-  })(openLoadFor(batch)(receipt));
+  })(spendLoadFor(batch)(receipt));
 
 export const loadsOf = (ledger: Ledger): ReadonlyArray<Entry> => Sealed.open(LEDGER, ledger).loads;

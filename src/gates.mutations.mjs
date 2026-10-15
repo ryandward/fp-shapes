@@ -10,6 +10,8 @@ const edit = (file, from, to) => ({ file, from, to });
 
 export const mutations = [
   ['make #value public', edit('src/sealed.ts', /#value/g, 'value')],
+  ['let open read spent evidence', edit('src/sealed.ts', "x: Sealed<Tag, T, 'open'>): T {", 'x: Sealed<Tag, T, Use>): T {')],
+  ['let the use be relabelled', edit('src/sealed.ts', '  readonly #use: U;\n', '  readonly #use: Use;\n')],
   ['drop the undefined check from Total', edit('src/total.ts', '  : undefined extends T ? true\n', '')],
   ['drop the {} check from Total', edit('src/total.ts', '        : {} extends T ? true // {}, object, or all-optional: open\n', '')],
   ['let Immutable accept mutable arrays', edit('src/total.ts', '    : T extends unknown[] ? true // a mutable array or tuple\n', '')],

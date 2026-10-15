@@ -47,7 +47,7 @@ const classify = (row: StoredFile): Variant<Status> =>
 
 export const parseFileStatus: Boundary<FileStatus> = boundary(
   stored,
-  (row) => new Sealed(FILE_STATUS, classify(row)),
+  (row) => new Sealed(FILE_STATUS, classify(row), 'open'),
 );
 
 // The domain reads a fact through its boundary's opener, never through a field.

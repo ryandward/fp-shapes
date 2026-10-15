@@ -116,8 +116,9 @@ file outside the copied directories names a file the scratch tree lacks).
 | `NonEmpty<T>` + `mapNonEmpty` | `src/variant.ts` | evidence as a value | `array[0]` + `if (!head)` |
 | `Partition<M>` + `partition` | `src/variant.ts` | one classification, every case kept, every bucket named | `filter`, `find`, `some`, `every` |
 | `Occupancy<T>` + `occupancy` | `src/boundary/evidence.ts` | the one look at `.length`; elements are defined values, by the signature | `if (xs.length === 0)` downstream |
-| `Sealed<Tag, T>` + `Sealed.open` | `src/sealed.ts` | who sealed it; the only read re-checks the brand at runtime; the payload is frozen at seal time, all the way down | symbol-branded objects |
+| `Sealed<Tag, T, Use>` + `Sealed.open` / `Sealed.spend` | `src/sealed.ts` | who sealed it, and whether it is held (`'open'`: read any number of times) or spent (`'spend'`: read once, by the reader that consumes it); the reads re-check the brand at runtime, `spend` halts on a second read, and the payload is frozen at seal time, all the way down | symbol-branded objects; a receipt or token used twice |
 | `Decide<F, A, M>` | `src/sealed.ts` | an owner's decision: facts in, sealed verdict out | decision functions returning plain objects |
+| `compare` + `Comparison` | `src/boundary/compare.ts` | the one structural comparison: two facts are the same when every leaf is, by `Object.is`; a difference carries the path to the first leaf that differs; sealed values compare by identity | `===` on records, which is identity; `JSON.stringify(a) === JSON.stringify(b)` |
 | `Total<T>` | `src/total.ts` | completeness: no `?:`, `undefined`, `unknown`, `any`, `never`, function, index signature, `Date`, or open object (`{}`, `object`); exclusion keys (`k?: never`) are not holes; a type that contains its own kind answers `Recursive<T>` and one that nests past four containers answers `Deep<T>`, each naming the property | trusting `z.output` to be complete |
 | `Immutable<T>` | `src/total.ts` | every property readonly, every array a `ReadonlyArray`, all the way down; recursion answers `Recursive<T>`, depth `Deep<T>` | mutable schema outputs |
 | `Exact<A, B>` | `src/total.ts` | correspondence: both total, same keys, mutually assignable | a key-set comparison at one level |
@@ -162,7 +163,10 @@ Four kinds of check, because the guarantees are of different kinds.
   reports as `Needs<"a total output: …">`.
 - **Runtime** (`test/*.test.ts`): what the compiler leaves to the running
   program. `Object.assign({}, sealed)` and `structuredClone(sealed)` compile
-  as sealed; `Sealed.open` rejects them. Two patterns the examples use: a
+  as sealed; `Sealed.open` and `Sealed.spend` reject them, and `spend`
+  refuses the second read of evidence sealed for one, whatever route the
+  value took to arrive twice (the spent set is the library's one piece of
+  runtime state, a `WeakSet` written once per value). Two patterns the examples use: a
   record keyed by a union's kinds holding one sample of every case, which
   fails to compile until a new case has a sample, so a fold can be checked
   over all of them; and a fake of the foreign modules that models the one
@@ -180,7 +184,7 @@ Four kinds of check, because the guarantees are of different kinds.
 The tiers, by path segment. The domain is data, folds, and owner-issued
 values, and performs no effect: an effect reaches it as a parameter or as
 the fact it produced. What a domain module imports from an `effects/`
-module is a reader of the evidence that module issues, named `open…`, so
+module is a reader of the evidence that module issues, named `open…` or `spend…`, so
 the reading is pinned to the issuer; the performers are not importable, and
 neither are the effects the language offers without an import (`fetch`,
 `process`, `console`, timers, `Date`, `Math.random`, `crypto`, `JSON.parse`,
@@ -205,8 +209,8 @@ subject to a rule.
 `noUncheckedIndexedAccess`, `noUnusedLocals`) over the library, the examples
 and the tests; lint; 107 rule fixtures (86 for the domain tier, 11 for the
 boundary tier, 8 for the effects tier, 2 for the ETL example); no `.d.ts`
-under `src`; 23 mutations (14 against the library's gates, 9 against the
-examples'); 46 runtime tests.
+under `src`; 25 mutations (16 against the library's gates, 9 against the
+examples'); 56 runtime tests.
 
 ## Examples
 
@@ -322,11 +326,20 @@ typetest; an `as` anywhere but `as const`; a `declare` outside a typetest.
   and openers, keeps the two apart.
 - `Sealed.open` proves who sealed a value, not what it is about: put the
   subject (batch id, row id) inside the sealed payload and have the owner's
-  opener take the expected id. Single consumption is a runtime fact: in ETL
-  it is the idempotency key at the load effect.
+  opener take the expected id. Single consumption of evidence is held at
+  runtime by `'spend'`: the type keeps `open` off it and the spent set
+  refuses a second `spend`, so a receipt settles once and a fence is
+  finalized once. What it does not hold is the effect behind the evidence:
+  a load performed twice issues two receipts, and the idempotency key at
+  the load effect is what makes the second a no-op. Which values are spent
+  and which are held is the owner's declaration, and review sees whether
+  it matches what the value is for.
+- Facts are compared with `compare`, never with `===`, which is identity on
+  records. Lint cannot see the type of an operand, so a domain `===` on two
+  records is review-held until the type-aware rule exists.
 - Lint reads syntax. The rules on `Math.random`, `JSON.parse` and the
   `open…` names of evidence readers hold for the forms code takes when it is
   written directly; a global bound to another name (`const D = Date`) or a
-  performer named `open…` is visible for what it is in review, and
+  performer named `open…` or `spend…` is visible for what it is in review, and
   typescript-eslint's type-aware rules are the next hold (`recommendedTypeChecked`
   refuses the `any` that `JSON.parse` returns wherever it lands).

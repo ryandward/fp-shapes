@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.0
+
+Evidence is held or spent, and facts compare structurally.
+
+- `Sealed<Tag, T, Use>`: the owner declares at sealing time whether the
+  value is held (`'open'`, read any number of times) or spent (`'spend'`,
+  read once by the reader that consumes it). The declaration is the third
+  constructor argument and is required, so every seal says what it is.
+  `Sealed.open` takes held evidence and `Sealed.spend` takes spent evidence,
+  by type; both re-check the brand; `spend` refuses the second read of the
+  same value at runtime through a `WeakSet` of consumed values, the library's
+  one piece of runtime state, so an alias through a collection, a closure or
+  a record is caught where the type cannot see it. `Decide` returns held
+  evidence.
+- `compare(a, b)` in `src/boundary/compare.ts`: the one structural
+  comparison, a decision (`same` or `differs { at }`) with the path to the
+  first differing leaf. `===` on records is identity.
+- Lint: a `spend…` export of an effects module is a reader, like `open…`.
+- Examples: a load receipt, a fence receipt and a finalized receipt are
+  spent; claims, stages, statuses and the ledger are held. A test settles a
+  receipt twice and sees the defect.
+- Gates for held/spent (a relabel, `open` on spent, `spend` on held) and
+  two mutations (let `open` read spent evidence; erase the declaration).
+
 ## 0.4.9
 
 - Lint: `Symbol.for` and `Symbol.keyFor` are refused in every tier but

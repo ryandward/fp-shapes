@@ -30,10 +30,10 @@ export const unfenced = fx.finalize({ fileId: 'f', bytes: 1 });
 export const unfinalized = fx.settle(claim, fenced);
 
 // @ts-expect-error a claim is issued by the adapter's claim effect
-export const forgedClaim: Claim = new Sealed(Symbol('claim'), { fileId: 'f', token: 't' });
+export const forgedClaim: Claim = new Sealed(Symbol('claim'), { fileId: 'f', token: 't' }, 'open');
 
 // @ts-expect-error a finalized receipt is issued by the adapter's finalize effect
-export const forgedFinal: Finalized = new Sealed(Symbol('finalized'), { fileId: 'f' });
+export const forgedFinal: Finalized = new Sealed(Symbol('finalized'), { fileId: 'f' }, 'spend');
 
 // @ts-expect-error a claim comes from the claim effect; a spread is plain data
 export const copiedClaim: Claim = { ...claim };

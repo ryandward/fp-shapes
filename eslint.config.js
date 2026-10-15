@@ -94,20 +94,21 @@ const rules = {
   ],
   // An effect is performed in effects/ and reaches the domain as a parameter
   // or as the fact it produced. What the domain imports from an effects module
-  // is a reader of the evidence that module issues, named open…, so the
-  // reading is pinned to the issuer; the performers are parameters.
+  // is a reader of the evidence that module issues, named open… (held) or
+  // spend… (read once), so the reading is pinned to the issuer; the
+  // performers are parameters.
   effects: [
     rule(
-      "ImportDeclaration[importKind!='type'][source.value=/(^|\\/)effects\\//] > ImportSpecifier[importKind!='type'][imported.name!=/^open/]",
-      'an effect runs in effects/ and reaches here as a parameter; a reader of its evidence is named open…',
+      "ImportDeclaration[importKind!='type'][source.value=/(^|\\/)effects\\//] > ImportSpecifier[importKind!='type'][imported.name!=/^(open|spend)/]",
+      'an effect runs in effects/ and reaches here as a parameter; a reader of its evidence is named open… or spend…',
     ),
-    rule("ImportDeclaration[source.value=/(^|\\/)effects\\//] > ImportDefaultSpecifier", 'an effect runs in effects/ and reaches here as a parameter; a reader of its evidence is named open…'),
-    rule("ImportDeclaration[source.value=/(^|\\/)effects\\//] > ImportNamespaceSpecifier", 'an effect runs in effects/ and reaches here as a parameter; a reader of its evidence is named open…'),
+    rule("ImportDeclaration[source.value=/(^|\\/)effects\\//] > ImportDefaultSpecifier", 'an effect runs in effects/ and reaches here as a parameter; a reader of its evidence is named open… or spend…'),
+    rule("ImportDeclaration[source.value=/(^|\\/)effects\\//] > ImportNamespaceSpecifier", 'an effect runs in effects/ and reaches here as a parameter; a reader of its evidence is named open… or spend…'),
     rule(
-      "ExportNamedDeclaration[exportKind!='type'][source.value=/(^|\\/)effects\\//] > ExportSpecifier[exportKind!='type'][local.name!=/^open/]",
-      'an effect runs in effects/ and reaches here as a parameter; a reader of its evidence is named open…',
+      "ExportNamedDeclaration[exportKind!='type'][source.value=/(^|\\/)effects\\//] > ExportSpecifier[exportKind!='type'][local.name!=/^(open|spend)/]",
+      'an effect runs in effects/ and reaches here as a parameter; a reader of its evidence is named open… or spend…',
     ),
-    rule("ExportAllDeclaration[source.value=/(^|\\/)effects\\//]", 'an effect runs in effects/ and reaches here as a parameter; a reader of its evidence is named open…'),
+    rule("ExportAllDeclaration[source.value=/(^|\\/)effects\\//]", 'an effect runs in effects/ and reaches here as a parameter; a reader of its evidence is named open… or spend…'),
     rule('ImportExpression', 'a module names its imports at the top'),
     rule("CallExpression[callee.object.name='Date'][callee.property.name='now'], CallExpression[callee.object.name='Date'][callee.property.value='now']", 'the time is read in effects/ and passed in as a fact'),
     rule("NewExpression[callee.name='Date'][arguments.length=0]", 'the time is read in effects/ and passed in as a fact'),

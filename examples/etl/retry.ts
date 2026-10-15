@@ -28,6 +28,6 @@ const decide = fold<Status, Variant<Retry>>({
 });
 
 export const retryOf: Decide<FileStatus, typeof RETRY, Retry> = (status) =>
-  new Sealed(RETRY, decide(statusOf(status)));
+  new Sealed(RETRY, decide(statusOf(status)), 'open');
 
 export const openRetry = (decision: RetryDecision): Variant<Retry> => Sealed.open(RETRY, decision);

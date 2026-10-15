@@ -17,6 +17,6 @@ export const mutations = [
   [
     'let the ledger accept a bare entry',
     edit('examples/etl/ledger.ts', 'receipt: LoadReceipt): Settlement =>', 'receipt: Entry): Settlement =>'),
-    edit('examples/etl/ledger.ts', 'openLoadFor(batch)(receipt)', "({ kind: 'matched' as const, written: receipt.written })"),
+    edit('examples/etl/ledger.ts', 'spendLoadFor(batch)(receipt)', "({ kind: 'matched' as const, written: receipt.written })"),
   ],
 ];

@@ -43,6 +43,17 @@ test('the whole pipeline: extract keeps rejections, stages the rest, load return
   if (settlement.kind === 'settled') assert.deepEqual(loadsOf(settlement.ledger), [{ batch, written: 1 }]);
 });
 
+test('a receipt settles its batch once; a second settlement is a defect, not a second load', async () => {
+  const batch = newBatchId();
+  const extraction = extract(batch, [{ id: 'a', value: 'x' }]);
+  if (extraction.kind !== 'started') throw new Error('fixture must start');
+  const receipt = await load(transform(extraction.staged));
+  const first = settle(emptyLedger, batch, receipt);
+  assert.equal(first.kind, 'settled');
+  if (first.kind !== 'settled') return;
+  assert.throws(() => settle(first.ledger, batch, receipt), /not yet spent; this was/);
+});
+
 test('a receipt for one batch cannot settle another', async () => {
   const batch = newBatchId();
   const extraction = extract(batch, [{ id: 'a', value: 'x' }]);

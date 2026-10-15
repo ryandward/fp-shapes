@@ -31,7 +31,7 @@ declare const sealedB: Sealed<typeof B, Fact>;
 export const crossed: Sealed<typeof _A, Fact> = sealedB;
 
 // @ts-expect-error a value sealed under a fresh symbol is not sealed by a declared authority
-export const fresh: Sealed<typeof _A, Fact> = new Sealed(Symbol('a'), { n: 1 });
+export const fresh: Sealed<typeof _A, Fact> = new Sealed(Symbol('a'), { n: 1 }, 'open');
 
 // @ts-expect-error a spread of a sealed value is plain data
 export const copied: Sealed<typeof _A, Fact> = { ...sealedA };
@@ -41,6 +41,19 @@ export const peeked = sealedA.value;
 
 // @ts-expect-error Sealed.open takes the authority that sealed the value
 export const misopened = Sealed.open(B, sealedA);
+
+// --- evidence is held or spent, as its owner declared ----------------------------
+
+declare const onceA: Sealed<typeof _A, Fact, 'spend'>;
+
+// @ts-expect-error evidence sealed for one read is not held evidence
+export const relabelled: Sealed<typeof _A, Fact, 'open'> = onceA;
+
+// @ts-expect-error held evidence is read with open, not spent
+export const misspent = Sealed.spend(B, sealedB);
+
+// @ts-expect-error evidence sealed for one read is spent, not opened
+export const reread = Sealed.open(_A, onceA);
 
 // --- variants: every case handled, each case carrying its own fields --------
 
