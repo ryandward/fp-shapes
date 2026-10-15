@@ -16,7 +16,7 @@ part of the library.
 
 ```
 npm ci
-npm run check        # tsc, lint, rule fixtures, no .d.ts, mutations, tests
+npm run check        # tsc, lint, rule fixtures, rule coverage, no .d.ts, mutations, tests
 ```
 
 Node 22, TypeScript 5.9, zod 4, ESLint 9, from the lockfile. The tests run
@@ -200,9 +200,14 @@ Four kinds of check, because the guarantees are of different kinds.
   inverse of a test. Every binding is exported, so the only error a line can
   produce is the one its guarantee describes; each line can fail in exactly
   one way; the assertion utilities are gated like everything else.
-- **Lint** (`eslint.config.js`, `fixtures/rules/*.ts`): the rules the type
-  system describes but the language keeps available, one fixture per rule,
-  each declaring the message lint gives for it. Every message states what
+- **Lint** (`eslint.config.js`, `fixtures/rules/**/*.ts`): the rules the
+  type system describes but the language keeps available, one fixture per
+  rule, each declaring the message lint gives for it, in a directory per
+  tier so each tier's permissions are verified as well as its refusals.
+  `scripts/rule-coverage.mjs` then tags every rule's message and lints the
+  fixtures once: a rule is proved by a fixture that no other rule
+  satisfies, and a rule no fixture needs fails the check, so a rule cannot
+  be added without the fixture that proves it fires. Every message states what
   the code here is or what the construct needs ("a branch is a Variant:
   classify at the boundary, fold here"; "copy by naming every key; a Sealed
   value comes only from its owner"), and the type-level check on `boundary`
@@ -260,8 +265,9 @@ subject to a rule.
 `npm run check` runs all four on TypeScript 5.9.3, zod 4.6, ESLint 9, Node
 22: strict `tsc` (plus `exactOptionalPropertyTypes`,
 `noUncheckedIndexedAccess`, `noUnusedLocals`) over the library, the examples
-and the tests; lint; 118 rule fixtures (92 for the domain tier, 13 for the
-boundary tier, 10 for the effects tier, 2 for the ETL example); no `.d.ts`
+and the tests; lint; 125 rule fixtures (99 for the domain and primitives
+tiers, 13 for the boundary tier, 11 for the effects and foreign tiers, 2
+for the ETL example), every one of the 82 rules proved by one; no `.d.ts`
 under `src`; 28 mutations (19 against the library's gates, 9 against the
 examples'); 56 runtime tests.
 

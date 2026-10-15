@@ -96,8 +96,6 @@ const rules = {
       "MemberExpression[object.name='Object'][property.name=/^(assign|create|defineProperty|defineProperties|setPrototypeOf)$/]",
       'copy by naming every key; a Sealed value comes only from its owner',
     ),
-    rule("MemberExpression[object.name='Reflect']", 'read fields through the type; a sealed payload is read through its opener'),
-    rule("CallExpression[callee.name='structuredClone']", 'copy by naming every key; a Sealed value comes only from its owner'),
     rule("MemberExpression[object.name='JSON'][property.name='parse'], MemberExpression[object.name='JSON'][property.value='parse']", 'text is decoded in effects/ under attempt; unknown enters through a Boundary (src/boundary) and leaves as a fact'),
     rule("MemberExpression[computed=true][property.type='TemplateLiteral']", 'read a field by its name; a key is a name or a string'),
     rule(
@@ -254,6 +252,7 @@ export default [
     files: ['**/sealed.ts'],
     rules: {
       'no-restricted-syntax': syntax(...except('conditionals', 'exceptions', 'classes', 'mutation', 'brackets')),
+      'no-restricted-globals': effectsGlobals,
       'local/directives-are-gates': 'error',
     },
   },
@@ -273,6 +272,7 @@ export default [
     files: ['**/total.ts'],
     rules: {
       'no-restricted-syntax': syntax(...except('unknown', 'absence')),
+      'no-restricted-globals': effectsGlobals,
       'local/directives-are-gates': 'error',
     },
   },

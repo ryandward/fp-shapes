@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.6
+
+Every rule is proved by a fixture, and the check says so.
+
+- `scripts/rule-coverage.mjs`, run by `npm run check`: each rule's message
+  is tagged and the fixtures are linted once; a rule is proved by a fixture
+  whose expected message only that rule produces, and a rule no fixture
+  needs fails the check. It found seven unproved rules: `ClassExpression`,
+  the two re-export forms of the `.js` rule, and two pairs (`Reflect`,
+  `structuredClone`) where a selector and a global each covered the other.
+  The selectors are gone (the globals are stronger) and the primitives
+  tiers now carry the launder globals; the rest have fixtures.
+- Fixtures that prove each tier's permissions: `sealed.ts`, `total.ts`,
+  `variant.ts`, `effects/foreign.ts` and a typetest, each `clean`.
+
 ## 0.5.5
 
 A fact is built by naming every key.
