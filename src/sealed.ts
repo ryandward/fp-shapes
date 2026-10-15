@@ -116,7 +116,10 @@ export class Sealed<Tag extends symbol, T extends object, U extends Use = 'open'
 // holds opaquely: a receipt is spent once, whatever route it took, through the
 // same spent set `Sealed.spend` keeps; a registry keeps what the shell minted
 // under the identity of the value it minted it as, so a value the shell did
-// not mint, whatever its shape, is read as a defect.
+// not mint, whatever its shape, is read as a defect. Each value is minted for
+// an owner, the attempt it was issued to, and the registry answers for an
+// owner what it minted that was never spent: the ownership audit a run reads
+// at every terminal, whether it finished or halted.
 export const spendOnce = <T extends object>(value: T): T => {
   if (spent.has(value)) return defect('a receipt is spent once; this one was');
   spent.add(value);
@@ -124,21 +127,33 @@ export const spendOnce = <T extends object>(value: T): T => {
 };
 
 export type Registry<V extends object> = {
-  readonly mint: <K extends object>(key: K, value: V) => K;
+  readonly mint: <K extends object>(key: K, value: V, owner: object) => K;
   readonly read: (key: object) => V;
+  readonly outstanding: (owner: object) => ReadonlyArray<V>;
 };
 
 export const registry = <V extends object>(what: string): Registry<V> => {
   const minted = new WeakMap<object, V>();
+  const owned = new WeakMap<object, Set<object>>();
   return {
-    mint: (key, value) => {
+    mint: (key, value, owner) => {
       minted.set(key, frozen(value));
+      const keys = owned.get(owner) ?? new Set<object>();
+      keys.add(key);
+      owned.set(owner, keys);
       return key;
     },
     read: (key) => {
       const value = minted.get(key);
       return value === undefined ? defect(`${what}: a value the shell did not mint; a receipt is read only from the registry it was minted into`) : value;
     },
+    outstanding: (owner) =>
+      Object.freeze(
+        [...(owned.get(owner) ?? [])].flatMap((key) => {
+          const value = minted.get(key);
+          return spent.has(key) || value === undefined ? [] : [value];
+        }),
+      ),
   };
 };
 

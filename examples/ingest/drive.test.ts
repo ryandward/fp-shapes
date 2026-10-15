@@ -18,6 +18,7 @@ import type {
 } from './boundary/ingest.ffi.js';
 import { classifyTarget } from './boundary/target.js';
 import { drive, type Effects, type Entry } from './effects/ingest.drive.js';
+import { defect } from '../../src/sealed.js';
 import { report, verdict } from './report.js';
 import type { Variant } from '../../src/variant.js';
 
@@ -63,6 +64,8 @@ const scripted = (overrides: Partial<Script>) => {
   };
   return async () => {
     const run = await drive(fx)('f-1');
+    if (run.kind !== 'finished') throw new Error(`the attempt halted: ${run.error.message}`);
+    assert.deepEqual(run.outstanding, []); // every receipt issued on this path was spent
     const commands = run.ledger.map((entry) => entry.kind);
     const stranded = run.ledger.flatMap((entry) => (entry.kind === 'strand' ? [entry.cause] : []));
     return { status: run.status, commands, stranded, ledger: run.ledger };
@@ -173,6 +176,67 @@ test('a definitive cause whose record fails is handed back for another run', asy
 test('a fence lost at settle is a revoked claim, not a dead worker', async () => {
   const run = await scripted({ settle: { kind: 'settle_revoked' } })();
   assert.deepEqual(run.status, { kind: 'claim_revoked' });
+});
+
+test('a performer that throws halts the run: the error, the ledger so far, and nothing outstanding on that path', async () => {
+  const fx: Effects = {
+    target: async () => ({ kind: 'ready', uri, destKey }),
+    markNeverStarted: async () => ({ kind: 'marked' }),
+    claim: async () => ({ kind: 'claimed', c: { fileId: 'f-1', token: 'claim-1' } }),
+    transfer: async () => defect('the source process could not be spawned'),
+    fence: async () => ({ kind: 'fence_revoked' }),
+    finalize: async () => ({ kind: 'finalize_died', diagnostic: 'unreached' }),
+    settle: async () => ({ kind: 'settle_died', diagnostic: 'unreached' }),
+    strand: async () => ({ kind: 'recorded' }),
+  };
+  const run = await drive(fx)('f-1');
+  if (run.kind !== 'halted') throw new Error('the run must halt');
+  assert.equal(run.error.message, 'the source process could not be spawned');
+  assert.deepEqual(
+    run.ledger.map((entry) => entry.kind),
+    ['target', 'claim'],
+  );
+  assert.deepEqual(run.outstanding, []);
+});
+
+test('an outcome the FFI refuses halts the run naming the field, with the ledger up to that command', async () => {
+  const fx: Effects = {
+    target: async () => ({ kind: 'ready', uri, destKey }),
+    markNeverStarted: async () => ({ kind: 'marked' }),
+    claim: async () => ({ kind: 'claimed', c: { fileId: 'f-1', token: 'claim-1' } }),
+    transfer: async () => ({ kind: 'transferred', bytes: 1.5 }),
+    fence: async () => ({ kind: 'fence_revoked' }),
+    finalize: async () => ({ kind: 'finalize_died', diagnostic: 'unreached' }),
+    settle: async () => ({ kind: 'settle_died', diagnostic: 'unreached' }),
+    strand: async () => ({ kind: 'recorded' }),
+  };
+  const run = await drive(fx)('f-1');
+  if (run.kind !== 'halted') throw new Error('the run must halt');
+  assert.match(run.error.message, /transfer: bytes: /);
+  assert.deepEqual(
+    run.ledger.map((entry) => entry.kind),
+    ['target', 'claim'],
+  );
+});
+
+test('a halt after a receipt was issued reports that receipt as outstanding', async () => {
+  const fx: Effects = {
+    target: async () => ({ kind: 'ready', uri, destKey }),
+    markNeverStarted: async () => ({ kind: 'marked' }),
+    claim: async () => ({ kind: 'claimed', c: { fileId: 'f-1', token: 'claim-1' } }),
+    transfer: async () => ({ kind: 'transferred', bytes: 48 }),
+    fence: async () => ({ kind: 'held', f: { fileId: 'f-1', bytes: 48 } }),
+    finalize: async () => defect('the finalizer process died'), // the fenced receipt was spent by reaching finalize
+    settle: async () => ({ kind: 'settle_died', diagnostic: 'unreached' }),
+    strand: async () => ({ kind: 'recorded' }),
+  };
+  const run = await drive(fx)('f-1');
+  if (run.kind !== 'halted') throw new Error('the run must halt');
+  assert.deepEqual(run.outstanding, []); // spent when the finalize step was read, before its performer threw
+  const issued: Effects = { ...fx, fence: async () => defect('the fence write hung') };
+  const earlier = await drive(issued)('f-1');
+  if (earlier.kind !== 'halted') throw new Error('the run must halt');
+  assert.deepEqual(earlier.outstanding, []); // nothing was issued before the fence answered
 });
 
 // One sample of every case. The record is keyed by the status's kinds, so a

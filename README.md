@@ -172,7 +172,20 @@ backend), and generates the rest from the compiler's interface files:
   resumptions and receipts spent once;
 - `effects/<core>.drive.ts`: the interpreter, `drive(fx)(args)`: it folds
   the step, performs each command through the `Effects` record, resumes
-  the core with the outcome, and returns the status with the ledger.
+  the core with the outcome, and returns a run: `finished` with the
+  status, the ledger and the ownership audit, or `halted` with the error,
+  the ledger so far and the audit. The audit names every receipt issued
+  to the attempt and not spent, so a core that drops one is caught on its
+  first run; the ledger is kept in the kernel's append-only builder, one
+  write per command.
+
+Two kinds of evidence cross: a *claim* is a capability held for the
+whole attempt, handed to any number of operations and checked for
+provenance; a *receipt* (a type named `…-receipt`) is spent by the one
+operation that takes it. The compiled modules under `.build/` hold raw
+constructors and resumptions, and the generated FFI is the only module
+allowed to import them by value: every tier refuses the import, with a
+type-only import allowed for gates.
 
 The generated TypeScript is committed and linted under the boundary and
 effects tiers like anything else; `koka:check` fails when it differs
@@ -392,9 +405,9 @@ shell is TypeScript.
   holds the receipts as abstract structs, so `finalize` can only be
   reached with what `fence` issued and `settle` with what `finalize`
   issued; the order of the pipeline is in the types, and the core cannot
-  mint, match or read a receipt. `core/mutations.mjs` lists nineteen
+  mint, match or read a receipt. `core/mutations.mjs` lists twenty-two
   loosenings and which check refuses each: the compiler, the gate, the
-  typecheck over the regenerated surface, or the tests.
+  typecheck over the regenerated surface, the lint, or the tests.
 - `boundary/ingest.ffi.ts` and `effects/ingest.drive.ts` are generated
   from the core; `boundary/target.ts` reads the stored row once into the
   core's target outcome: gone, settled, abandoned (the dead-man's switch
@@ -412,12 +425,14 @@ shell is TypeScript.
 - `report.ts` is shell-side domain code under the tiers: two folds over
   the status the FFI reads out, so a case added in the core fails to
   compile here until this file says what it means.
-- `drive.test.ts` runs every path with a scripted fake of the effects and
-  reads back the ledger; `ffi.test.ts` holds the FFI's own guarantees (a
-  value parsed, copied and frozen on the way in; frozen on the way out; a
-  step resumed once; a halt that names the field); `adapt.test.ts` hands
-  the adapters a fake of the foreign modules that throws and returns the
-  way the real ones do.
+- `drive.test.ts` runs every path with a scripted fake of the effects,
+  reads back the ledger, and holds the audit empty on each; a throwing
+  performer and a refused outcome each halt the run with the ledger so
+  far. `ffi.test.ts` holds the FFI's own guarantees (a value parsed,
+  copied and frozen on the way in; frozen on the way out; a step resumed
+  once; a halt that names the field; the audit per attempt).
+  `adapt.test.ts` hands the adapters a fake of the foreign modules that
+  throws and returns the way the real ones do.
 
 Making the cases explicit surfaced three behaviours of the original worth a
 decision: a failed cause-record threw to the caller although the contract

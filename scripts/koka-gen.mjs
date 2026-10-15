@@ -453,9 +453,23 @@ const ffiTs = (model, bridge, outPath) => {
     if (t.k === 'vector') return `z.array(${schemaOf(t.of)}).readonly()`;
     return schemaName(findType(t));
   };
+  // A value that carries a minted value (a claim, a receipt) anywhere inside
+  // it is built for an owner: the attempt it is issued to, which the registry
+  // audits at the end for the receipts among them.
+  const holdsReceipt = (t, seen = new Set()) => {
+    if (t.k === 'vector') return holdsReceipt(t.of, seen);
+    if (t.k !== 'ref') return false;
+    const type = findType(t);
+    if (!type.cons.some((c) => c.pub)) return true; // abstract: minted into a registry
+    const key = `${t.module}/${t.name}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return type.cons.some((c) => c.fields.some((f) => holdsReceipt(f.type, seen)));
+  };
+  const owned = (t) => (holdsReceipt(t) ? ', owner' : '');
   const intoOf = (t, expr) => {
     if (t.k === 'vector') return `${expr}.map((item) => ${intoOf(t.of, 'item')})`;
-    if (t.k === 'ref') return `${intoName(findType(t))}(${expr})`;
+    if (t.k === 'ref') return `${intoName(findType(t))}(${expr}${owned(t)})`;
     return expr;
   };
   const fromOf = (t, expr) => {
@@ -524,12 +538,13 @@ const ffiTs = (model, bridge, outPath) => {
   for (const t of types) {
     if (!goesIn(t)) continue;
     const ref = { k: 'ref', module: t.module, name: t.name };
+    const ownerParam = holdsReceipt(ref) ? ', owner: object' : '';
     if (t.abstract) {
       lines.push(`const ${registryName(t)} = registry<${pascal(t.name)}>('${t.name}');`);
-      lines.push(`const ${intoName(t)} = (raw: ${pascal(t.name)}): ${K(t)} =>`);
-      lines.push(`  ${registryName(t)}.mint(freezeKoka(${moduleAlias(t.module)}.${jsName(t.cons[0].name)}(${t.cons[0].fields.map((f) => `raw.${camel(f.name)}`).join(', ')})), raw);`);
+      lines.push(`const ${intoName(t)} = (raw: ${pascal(t.name)}, owner: object): ${K(t)} =>`);
+      lines.push(`  ${registryName(t)}.mint(freezeKoka(${moduleAlias(t.module)}.${jsName(t.cons[0].name)}(${t.cons[0].fields.map((f) => `raw.${camel(f.name)}`).join(', ')})), raw, owner);`);
     } else if (isSum(t)) {
-      lines.push(`const ${intoName(t)} = (raw: Variant<${pascal(t.name)}>): ${K(t)} =>`);
+      lines.push(`const ${intoName(t)} = (raw: Variant<${pascal(t.name)}>${ownerParam}): ${K(t)} =>`);
       lines.push(`  freezeKoka(`);
       lines.push(`    fold<${pascal(t.name)}, ${K(t)}>({`);
       for (const c of t.cons) {
@@ -542,10 +557,9 @@ const ffiTs = (model, bridge, outPath) => {
       lines.push(`  );`);
     } else {
       const c = t.cons[0];
-      lines.push(`const ${intoName(t)} = (raw: ${pascal(t.name)}): ${K(t)} =>`);
+      lines.push(`const ${intoName(t)} = (raw: ${pascal(t.name)}${ownerParam}): ${K(t)} =>`);
       lines.push(`  freezeKoka(${moduleAlias(t.module)}.${jsName(c.name)}(${c.fields.map((f) => intoOf(f.type, `raw.${camel(f.name)}`)).join(', ')}));`);
     }
-    void ref;
   }
   lines.push('');
   lines.push('// Out: the core\'s form to the shell\'s, by fold; a receipt by the registry.');
@@ -575,11 +589,24 @@ const ffiTs = (model, bridge, outPath) => {
     }
   }
   lines.push('');
+  const receiptTypes = types.filter((t) => t.abstract && t.name.endsWith('-receipt'));
+  lines.push('// The ownership audit: every receipt minted for an attempt and never spent,');
+  lines.push('// read at every terminal, whether the attempt finished or halted.');
+  lines.push('export type Outstanding = {');
+  for (const t of receiptTypes) lines.push(`  ${snakeOfCon(pascal(t.name))}: { readonly receipt: ${pascal(t.name)} };`);
+  lines.push('};');
+  lines.push('');
+  lines.push('const outstandingOf = (owner: object): ReadonlyArray<Variant<Outstanding>> =>');
+  lines.push('  frozen([');
+  for (const t of receiptTypes) lines.push(`    ...${registryName(t)}.outstanding(owner).map((receipt): Variant<Outstanding> => ({ kind: '${snakeOfCon(pascal(t.name))}', receipt })),`);
+  lines.push('  ]);');
+  lines.push('');
   lines.push('// A step: the attempt is done, or suspended on one command with a resumption');
   lines.push('// that takes that command\'s outcome. The resumption parses the outcome, is');
-  lines.push('// spent once, and a receipt an operation takes is spent with it.');
+  lines.push('// spent once, and a receipt an operation takes is spent with it. A done step');
+  lines.push('// carries the audit.');
   lines.push('export type Step = {');
-  lines.push(`  done: { readonly status: ${valueType(entry.result)} };`);
+  lines.push(`  done: { readonly status: ${valueType(entry.result)}; readonly outstanding: ReadonlyArray<Variant<Outstanding>> };`);
   for (const op of ops) {
     const fs = op.params.map((p) => `readonly ${camel(p.name)}: ${valueType(p.type)}`);
     lines.push(`  ${snakeOfCon(`Await-${op.name}`)}: {`);
@@ -589,10 +616,10 @@ const ffiTs = (model, bridge, outPath) => {
   }
   lines.push('};');
   lines.push('');
-  lines.push(`const fromStep = (step: ${Bm}.Step): Variant<Step> =>`);
+  lines.push(`const fromStep = (step: ${Bm}.Step, owner: object): Variant<Step> =>`);
   lines.push(`  ${Bm}.fold_step<Variant<Step>>(`);
   lines.push(`    step,`);
-  lines.push(`    (status) => frozen({ kind: 'done', status: ${fromOf(entry.result, 'status')} }),`);
+  lines.push(`    (status) => frozen({ kind: 'done', status: ${fromOf(entry.result, 'status')}, outstanding: outstandingOf(owner) }),`);
   for (const op of ops) {
     const params = [...op.params.map((p) => camel(p.name)), 'resume'].join(', ');
     const reads = op.params.map((p) => {
@@ -601,24 +628,34 @@ const ffiTs = (model, bridge, outPath) => {
     });
     const resultType = valueType(op.result);
     const resultRef = op.result.k === 'ref' ? findType(op.result) : null;
-    const parsed = resultRef === null ? 'outcome' : `${intoName(resultRef)}(accepted<${resultType}>('${op.name}')(${parseName(resultRef)}(outcome)))`;
+    const parsed = resultRef === null ? 'outcome' : `${intoName(resultRef)}(accepted<${resultType}>('${op.name}')(${parseName(resultRef)}(outcome))${owned(op.result)})`;
     lines.push(`    (${params}) =>`);
     lines.push(`      frozen({`);
     lines.push(`        kind: '${snakeOfCon(`Await-${op.name}`)}',`);
     for (const r of reads) lines.push(`        ${r},`);
-    lines.push(`        resume: (outcome: ${resultType}): Variant<Step> => fromStep(spendOnce(resume)(${parsed})),`);
+    lines.push(`        resume: (outcome: ${resultType}): Variant<Step> => fromStep(spendOnce(resume)(${parsed}), owner),`);
     lines.push(`      }),`);
   }
   lines.push(`  );`);
   lines.push('');
-  lines.push('// The attempt begins: its arguments are parsed on the way in like any other value.');
+  lines.push('// An attempt: its first step, and its audit, readable at any time by the');
+  lines.push('// interpreter, so a halt reports what was outstanding as a finish does. The');
+  lines.push('// owner is a fresh identity per attempt; the arguments are parsed on the way');
+  lines.push('// in like any other value.');
+  lines.push('export type Attempt = {');
+  lines.push('  readonly first: Variant<Step>;');
+  lines.push('  readonly outstanding: () => ReadonlyArray<Variant<Outstanding>>;');
+  lines.push('};');
+  lines.push('');
   const entryArgs = entry.params.map((p) => {
     const ref = p.type.k === 'ref' ? findType(p.type) : null;
-    if (ref !== null) return `${intoName(ref)}(accepted<${valueType(p.type)}>('${p.name}')(${parseName(ref)}(${camel(p.name)})))`;
+    if (ref !== null) return `${intoName(ref)}(accepted<${valueType(p.type)}>('${p.name}')(${parseName(ref)}(${camel(p.name)}))${owned(p.type)})`;
     return `accepted<${valueType(p.type)}>('${p.name}')(boundary(${schemaOf(p.type)})(${camel(p.name)}))`;
   });
-  lines.push(`export const start = (${entry.params.map((p) => `${camel(p.name)}: ${valueType(p.type)}`).join(', ')}): Variant<Step> =>`);
-  lines.push(`  fromStep(${Bm}.start(${entryArgs.join(', ')}));`);
+  lines.push(`export const begin = (${entry.params.map((p) => `${camel(p.name)}: ${valueType(p.type)}`).join(', ')}): Attempt => {`);
+  lines.push('  const owner = {};');
+  lines.push(`  return frozen({ first: fromStep(${Bm}.start(${entryArgs.join(', ')}), owner), outstanding: () => outstandingOf(owner) });`);
+  lines.push('};');
   lines.push('');
   return lines.join('\n');
 };
@@ -653,10 +690,14 @@ const driveTs = (model, ffiPath, outPath) => {
   lines.push('// The interpreter. It performs each command the core suspends on, in order,');
   lines.push('// through the Effects record, resumes the core with the outcome, and keeps the');
   lines.push('// ledger: every command and its outcome, as data, in the order they happened.');
+  lines.push('// A run finishes with the status and the ownership audit, or halts, when a');
+  lines.push('// performer or the FFI threw, with the ledger so far and the audit at that');
+  lines.push('// point; either way nothing issued is dropped silently.');
   lines.push('');
+  lines.push(`import { ledger } from '${rel(join(lib, 'ledger.js'))}';`);
   lines.push(`import { frozen } from '${rel(join(lib, 'sealed.js'))}';`);
   lines.push(`import { fold, type Variant } from '${rel(join(lib, 'variant.js'))}';`);
-  lines.push(`import { start, type Step, ${typeNames.map((n) => `type ${n}`).join(', ')} } from '${rel(ffiPath).replace(/\.ts$/, '.js')}';`);
+  lines.push(`import { begin, type Outstanding, type Step, ${typeNames.map((n) => `type ${n}`).join(', ')} } from '${rel(ffiPath).replace(/\.ts$/, '.js')}';`);
   lines.push('');
   lines.push('// What the shell does for each command. Each returns that command\'s outcome.');
   lines.push('export type Effects = {');
@@ -668,22 +709,36 @@ const driveTs = (model, ffiPath, outPath) => {
   for (const op of ops) lines.push(`  ${snakeOfCon(op.name)}: { ${[...op.params.map((p) => `readonly ${camel(p.name)}: ${valueType(p.type)}`), `readonly outcome: ${valueType(op.result)}`].join('; ')} };`);
   lines.push('};');
   lines.push('');
-  lines.push(`export type Run = { readonly status: ${valueType(entry.result)}; readonly ledger: ReadonlyArray<Variant<Entry>> };`);
+  lines.push('export type Run = {');
+  lines.push(`  finished: { readonly status: ${valueType(entry.result)}; readonly ledger: ReadonlyArray<Variant<Entry>>; readonly outstanding: ReadonlyArray<Variant<Outstanding>> };`);
+  lines.push('  halted: { readonly error: Error; readonly ledger: ReadonlyArray<Variant<Entry>>; readonly outstanding: ReadonlyArray<Variant<Outstanding>> };');
+  lines.push('};');
   lines.push('');
   lines.push(`export const drive =`);
   lines.push(`  (fx: Effects) =>`);
-  lines.push(`  (${entry.params.map((p) => `${camel(p.name)}: ${valueType(p.type)}`).join(', ')}): Promise<Run> => {`);
-  lines.push(`    const loop = (step: Variant<Step>, ledger: ReadonlyArray<Variant<Entry>>): Promise<Run> =>`);
-  lines.push(`      fold<Step, Promise<Run>>({`);
-  lines.push(`        done: ({ status }) => Promise.resolve({ status, ledger }),`);
+  lines.push(`  (${entry.params.map((p) => `${camel(p.name)}: ${valueType(p.type)}`).join(', ')}): Promise<Variant<Run>> => {`);
+  lines.push(`    const attempt = begin(${entry.params.map((p) => camel(p.name)).join(', ')});`);
+  lines.push(`    const noted = ledger<Variant<Entry>>();`);
+  lines.push(`    const loop = (step: Variant<Step>): Promise<Variant<Run>> =>`);
+  lines.push(`      fold<Step, Promise<Variant<Run>>>({`);
+  lines.push(`        done: ({ status, outstanding }) => Promise.resolve({ kind: 'finished', status, ledger: noted.entries(), outstanding }),`);
   for (const op of ops) {
     const names = op.params.map((p) => camel(p.name));
     const key = snakeOfCon(`Await-${op.name}`);
     lines.push(`        ${key}: ({ ${[...names, 'resume'].join(', ')} }) =>`);
-    lines.push(`          fx.${camel(op.name)}(${names.join(', ')}).then((outcome) => loop(resume(outcome), [...ledger, frozen({ kind: '${snakeOfCon(op.name)}'${names.map((n) => `, ${n}`).join('')}, outcome })])),`);
+    lines.push(`          fx.${camel(op.name)}(${names.join(', ')}).then((outcome) => {`);
+    lines.push(`            const next = resume(outcome);`);
+    lines.push(`            noted.note(frozen({ kind: '${snakeOfCon(op.name)}'${names.map((n) => `, ${n}`).join('')}, outcome }));`);
+    lines.push(`            return loop(next);`);
+    lines.push(`          }),`);
   }
   lines.push(`      })(step);`);
-  lines.push(`    return loop(start(${entry.params.map((p) => camel(p.name)).join(', ')}), []);`);
+  lines.push(`    return loop(attempt.first).catch((thrown: unknown) => ({`);
+  lines.push(`      kind: 'halted',`);
+  lines.push(`      error: thrown instanceof Error ? thrown : new Error(String(thrown)),`);
+  lines.push(`      ledger: noted.entries(),`);
+  lines.push(`      outstanding: attempt.outstanding(),`);
+  lines.push(`    }));`);
   lines.push(`  };`);
   lines.push('');
   return lines.join('\n');

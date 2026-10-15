@@ -44,10 +44,14 @@ stops holding:
   the comparison's paths.
 
 The theorem in `SPEC.md` §6 is stated against these and is not proved.
-For the core, its first three clauses are the compiler's; the fourth,
-linearity, is held at runtime by the FFI and the ledger and is the one
-rule still marked "not yet enforced" statically, listed as open at the
-end of this file together with what the shell's tiers leave open.
+For the core, its first three clauses are the compiler's. The fourth,
+linearity, has a runtime half and a static half: the runtime half (no
+receipt spent twice, every receipt issued and not spent named at every
+terminal) is the registry's and the spent set's, tested and mutated; the
+static half (a core refused when a path uses a receipt twice or ends with
+one live) is the pass of SPEC §4, not yet written, and is listed as open
+at the end of this file together with what the shell's tiers leave open.
+Nothing in this file claims the ledger establishes the static half.
 
 ## Where zod sits
 
@@ -137,6 +141,8 @@ in `src/gates.typetest.ts`; "mutation" names an entry in
 | a receipt handed to an operation that did not issue it (settle with the fence receipt) | core | the compiler: nominal receipt types | koka mutation "settle with the fence receipt" |
 | a receipt copied inside the core (`f(bytes = 0)`, the copy-with-update Koka derives for every constructor) | runtime | the FFI's registry: a receipt is read by identity from what the shell minted | koka mutation "hand on a copy of a receipt"; test "a registry reads back what was minted …" |
 | a receipt spent twice by the core | runtime | the spent set, through `spendOnce` when the operation's step is read | koka mutation "spend a receipt twice"; test "spendOnce reads a value once …" |
+| a receipt issued and dropped by the core (`Held(f) -> Succeeded(bytes)`) | runtime | the ownership audit: the registry names, per attempt, what was minted and never spent, at every terminal | koka mutation "drop a receipt"; tests "a registry answers, per owner, …", "the audit names a receipt …", and every path test's `outstanding: []` |
+| a claim treated as spent, or a receipt as held | shell | the vocabulary: a claim is a held capability the core hands to any operation; a `-receipt` type is spent by the one that takes it | SPEC §4; `core/evidence.kk` |
 | a step resumed twice from the shell | runtime | the spent set, through `spendOnce` on the resumption | test "a step is resumed once …" |
 | a Koka value forged in the shell by literal | shell | type: every type in the generated `.d.ts` is branded | ingest gates `forgedClaim`, `forgedStatus`, `forgedStep`; mutations "let a Koka claim be a plain record", "let a Koka status be a tagged record" |
 
@@ -147,6 +153,8 @@ in `src/gates.typetest.ts`; "mutation" names an entry in
 | a match that misses a case; a print; a recursive call; a thrown value; a field a type lacks | core | the compiler: `exn`, `console`, `div` in the inferred row; nominal constructors | koka mutations "drop a case from a match", "print from the core", "recurse", "throw instead of returning a case", "build a status with a field it lacks" |
 | `extern`, `unsafe-*`, `pretend-*`, `trace`, `var`, `ref`, a handler form, an `@`-name, a standard module outside the pure prelude | core | the gate, by token over the import closure | `fixtures/koka/*`; koka mutations "import the unsafe module", "assert a row with unsafe-total", "pretend a recursion decreases", "call foreign code", "answer an operation inside the core", "keep local state", "trace from the core" |
 | an operation answered with another operation's outcome | shell | type: each suspension's resumption takes its own outcome | ingest gates `misanswered`, `misanswered2`; mutation "let a fence be answered with a claim outcome" |
+| the compiled core imported by value anywhere but its generated FFI (raw constructors and resumptions, outside the parse, the registry and the spent set) | D, B, E, typetests | lint: `compiled` group; the FFI tier is the one exception; a type-only import is allowed | fixtures `import-build*`, `export-build`, `export-all-build`, `import-build-dynamic`, `import-dynamic-computed`; koka mutations "import the compiled core from shell-side domain code", "import the compiled bridge from an effects module" |
+| a performer or the FFI throwing with receipts issued | runtime | the interpreter halts with the error, the ledger so far and the audit | tests "a performer that throws halts the run …", "a halt after a receipt was issued …" |
 | an outcome handed to the core unparsed (a field of the wrong type, an undeclared key, a kind the operation lacks, a fraction or 2^53 as an int) | runtime | the FFI: every crossing parsed by its schema; a refusal halts, naming the field | tests in `examples/ingest/ffi.test.ts` |
 | a value handed to the core and changed afterwards | runtime | the FFI: the core gets a frozen copy built from the parsed value | test "a value handed in is copied …" |
 | a case added in the core that the shell does not say the meaning of | shell | type: the shell's folds are total | koka mutations "add a cause the foreign vocabulary lacks", "add a status the shell does not report" |
@@ -190,10 +198,13 @@ Each is recorded in `fixtures/open/` with the layer that closes it.
 - **A boolean produced by a reader in `effects/`** and imported. Closed by
   the checker's rule that no `boolean` is produced in the domain except by
   reading a fact's field.
-- **Exactly-once consumption.** `spend` and `spendOnce` hold at most
-  once; that every receipt issued is consumed before a run ends is not
-  yet reported by the ledger, and the static rule over the core (SPEC §4)
-  is the pass planned for 0.7. A token gate is not that checker.
+- **Exactly-once consumption, statically.** At runtime `spend` and
+  `spendOnce` hold at most once and the audit names every receipt issued
+  and not spent at every terminal. That a core *cannot* use a receipt
+  twice or end with one live is the pass over the compiler's initial core
+  planned for 0.7 (SPEC §4); until then a dropping or double-spending
+  core compiles and is caught on its first run. A token gate is not that
+  checker.
 - **Termination**, in shell-side domain code. Loops are refused; a
   recursive domain function is not. Closed in the core by the `div` row.
 - **A global bound to another name** (`const D = Date`). Visible in

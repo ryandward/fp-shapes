@@ -208,6 +208,7 @@ test('the whole run: one log line, the transfer cleared, the writes in order, th
       run.ledger.map((entry) => entry.kind),
       ['target', 'claim', 'transfer', 'fence', 'finalize', 'settle'],
     );
+    assert.match(lines[0] ?? '', /"outstanding":\[\]/);
   } finally {
     console.info = original;
   }

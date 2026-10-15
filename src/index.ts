@@ -5,6 +5,8 @@ export { fold, mapNonEmpty, partition } from './variant.js';
 export type { Cases, Classify, KindsOf, NonEmpty, Partition, Variant } from './variant.js';
 export { Sealed } from './sealed.js';
 export type { Decide, Use } from './sealed.js';
+export { ledger } from './ledger.js';
+export type { Ledger } from './ledger.js';
 export type { Assert, Deep, Equal, Exact, Immutable, Recursive, Total } from './total.js';
 export { boundary, sealing } from './boundary/boundary.js';
 export type { Boundary, Fact, Issue, Parse, TotalSchema } from './boundary/boundary.js';

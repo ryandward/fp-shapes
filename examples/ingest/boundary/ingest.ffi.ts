@@ -190,12 +190,12 @@ const intoMarkOutcome = (raw: Variant<MarkOutcome>): K_ingest.MarkOutcome =>
     })(raw),
   );
 const claimRegistry = registry<Claim>('claim');
-const intoClaim = (raw: Claim): K_evidence.Claim =>
-  claimRegistry.mint(freezeKoka(K_evidence.Claim(raw.fileId, raw.token)), raw);
-const intoClaimOutcome = (raw: Variant<ClaimOutcome>): K_ingest.ClaimOutcome =>
+const intoClaim = (raw: Claim, owner: object): K_evidence.Claim =>
+  claimRegistry.mint(freezeKoka(K_evidence.Claim(raw.fileId, raw.token)), raw, owner);
+const intoClaimOutcome = (raw: Variant<ClaimOutcome>, owner: object): K_ingest.ClaimOutcome =>
   freezeKoka(
     fold<ClaimOutcome, K_ingest.ClaimOutcome>({
-      claimed: ({ c }) => K_ingest.Claimed(intoClaim(c)),
+      claimed: ({ c }) => K_ingest.Claimed(intoClaim(c, owner)),
       claim_died: ({ diagnostic }) => K_ingest.ClaimDied(diagnostic),
     })(raw),
   );
@@ -211,23 +211,23 @@ const intoTransferOutcome = (raw: Variant<TransferOutcome>): K_ingest.TransferOu
     })(raw),
   );
 const fencedReceiptRegistry = registry<FencedReceipt>('fenced-receipt');
-const intoFencedReceipt = (raw: FencedReceipt): K_evidence.FencedReceipt =>
-  fencedReceiptRegistry.mint(freezeKoka(K_evidence.Fenced_receipt(raw.fileId, raw.bytes)), raw);
-const intoFenceOutcome = (raw: Variant<FenceOutcome>): K_ingest.FenceOutcome =>
+const intoFencedReceipt = (raw: FencedReceipt, owner: object): K_evidence.FencedReceipt =>
+  fencedReceiptRegistry.mint(freezeKoka(K_evidence.Fenced_receipt(raw.fileId, raw.bytes)), raw, owner);
+const intoFenceOutcome = (raw: Variant<FenceOutcome>, owner: object): K_ingest.FenceOutcome =>
   freezeKoka(
     fold<FenceOutcome, K_ingest.FenceOutcome>({
-      held: ({ f }) => K_ingest.Held(intoFencedReceipt(f)),
+      held: ({ f }) => K_ingest.Held(intoFencedReceipt(f, owner)),
       fence_revoked: () => K_ingest.FenceRevoked,
       fence_died: ({ diagnostic }) => K_ingest.FenceDied(diagnostic),
     })(raw),
   );
 const finalizedReceiptRegistry = registry<FinalizedReceipt>('finalized-receipt');
-const intoFinalizedReceipt = (raw: FinalizedReceipt): K_evidence.FinalizedReceipt =>
-  finalizedReceiptRegistry.mint(freezeKoka(K_evidence.Finalized_receipt(raw.fileId, raw.bytes)), raw);
-const intoFinalizeOutcome = (raw: Variant<FinalizeOutcome>): K_ingest.FinalizeOutcome =>
+const intoFinalizedReceipt = (raw: FinalizedReceipt, owner: object): K_evidence.FinalizedReceipt =>
+  finalizedReceiptRegistry.mint(freezeKoka(K_evidence.Finalized_receipt(raw.fileId, raw.bytes)), raw, owner);
+const intoFinalizeOutcome = (raw: Variant<FinalizeOutcome>, owner: object): K_ingest.FinalizeOutcome =>
   freezeKoka(
     fold<FinalizeOutcome, K_ingest.FinalizeOutcome>({
-      finalized: ({ z }) => K_ingest.Finalized(intoFinalizedReceipt(z)),
+      finalized: ({ z }) => K_ingest.Finalized(intoFinalizedReceipt(z, owner)),
       rejected: ({ cause }) => K_ingest.Rejected(intoDefinitive(cause)),
       finalize_died: ({ diagnostic }) => K_ingest.FinalizeDied(diagnostic),
     })(raw),
@@ -277,11 +277,25 @@ const fromClaim = (value: K_evidence.Claim): Claim => claimRegistry.read(value);
 const fromFencedReceipt = (value: K_evidence.FencedReceipt): FencedReceipt => fencedReceiptRegistry.read(value);
 const fromFinalizedReceipt = (value: K_evidence.FinalizedReceipt): FinalizedReceipt => finalizedReceiptRegistry.read(value);
 
+// The ownership audit: every receipt minted for an attempt and never spent,
+// read at every terminal, whether the attempt finished or halted.
+export type Outstanding = {
+  fenced_receipt: { readonly receipt: FencedReceipt };
+  finalized_receipt: { readonly receipt: FinalizedReceipt };
+};
+
+const outstandingOf = (owner: object): ReadonlyArray<Variant<Outstanding>> =>
+  frozen([
+    ...fencedReceiptRegistry.outstanding(owner).map((receipt): Variant<Outstanding> => ({ kind: 'fenced_receipt', receipt })),
+    ...finalizedReceiptRegistry.outstanding(owner).map((receipt): Variant<Outstanding> => ({ kind: 'finalized_receipt', receipt })),
+  ]);
+
 // A step: the attempt is done, or suspended on one command with a resumption
 // that takes that command's outcome. The resumption parses the outcome, is
-// spent once, and a receipt an operation takes is spent with it.
+// spent once, and a receipt an operation takes is spent with it. A done step
+// carries the audit.
 export type Step = {
-  done: { readonly status: Variant<IngestStatus> };
+  done: { readonly status: Variant<IngestStatus>; readonly outstanding: ReadonlyArray<Variant<Outstanding>> };
   await_target: {
     readonly fileId: string;
     readonly resume: (outcome: Variant<TargetOutcome>) => Variant<Step>;
@@ -321,27 +335,27 @@ export type Step = {
   };
 };
 
-const fromStep = (step: K_ingest_bridge.Step): Variant<Step> =>
+const fromStep = (step: K_ingest_bridge.Step, owner: object): Variant<Step> =>
   K_ingest_bridge.fold_step<Variant<Step>>(
     step,
-    (status) => frozen({ kind: 'done', status: fromIngestStatus(status) }),
+    (status) => frozen({ kind: 'done', status: fromIngestStatus(status), outstanding: outstandingOf(owner) }),
     (fileId, resume) =>
       frozen({
         kind: 'await_target',
         fileId,
-        resume: (outcome: Variant<TargetOutcome>): Variant<Step> => fromStep(spendOnce(resume)(intoTargetOutcome(accepted<Variant<TargetOutcome>>('target')(parseTargetOutcome(outcome))))),
+        resume: (outcome: Variant<TargetOutcome>): Variant<Step> => fromStep(spendOnce(resume)(intoTargetOutcome(accepted<Variant<TargetOutcome>>('target')(parseTargetOutcome(outcome)))), owner),
       }),
     (fileId, resume) =>
       frozen({
         kind: 'await_mark_never_started',
         fileId,
-        resume: (outcome: Variant<MarkOutcome>): Variant<Step> => fromStep(spendOnce(resume)(intoMarkOutcome(accepted<Variant<MarkOutcome>>('mark-never-started')(parseMarkOutcome(outcome))))),
+        resume: (outcome: Variant<MarkOutcome>): Variant<Step> => fromStep(spendOnce(resume)(intoMarkOutcome(accepted<Variant<MarkOutcome>>('mark-never-started')(parseMarkOutcome(outcome)))), owner),
       }),
     (fileId, resume) =>
       frozen({
         kind: 'await_claim',
         fileId,
-        resume: (outcome: Variant<ClaimOutcome>): Variant<Step> => fromStep(spendOnce(resume)(intoClaimOutcome(accepted<Variant<ClaimOutcome>>('claim')(parseClaimOutcome(outcome))))),
+        resume: (outcome: Variant<ClaimOutcome>): Variant<Step> => fromStep(spendOnce(resume)(intoClaimOutcome(accepted<Variant<ClaimOutcome>>('claim')(parseClaimOutcome(outcome)), owner)), owner),
       }),
     (c, uri, destKey, resume) =>
       frozen({
@@ -349,37 +363,47 @@ const fromStep = (step: K_ingest_bridge.Step): Variant<Step> =>
         c: fromClaim(c),
         uri,
         destKey,
-        resume: (outcome: Variant<TransferOutcome>): Variant<Step> => fromStep(spendOnce(resume)(intoTransferOutcome(accepted<Variant<TransferOutcome>>('transfer')(parseTransferOutcome(outcome))))),
+        resume: (outcome: Variant<TransferOutcome>): Variant<Step> => fromStep(spendOnce(resume)(intoTransferOutcome(accepted<Variant<TransferOutcome>>('transfer')(parseTransferOutcome(outcome)))), owner),
       }),
     (c, bytes, resume) =>
       frozen({
         kind: 'await_fence',
         c: fromClaim(c),
         bytes,
-        resume: (outcome: Variant<FenceOutcome>): Variant<Step> => fromStep(spendOnce(resume)(intoFenceOutcome(accepted<Variant<FenceOutcome>>('fence')(parseFenceOutcome(outcome))))),
+        resume: (outcome: Variant<FenceOutcome>): Variant<Step> => fromStep(spendOnce(resume)(intoFenceOutcome(accepted<Variant<FenceOutcome>>('fence')(parseFenceOutcome(outcome)), owner)), owner),
       }),
     (f, resume) =>
       frozen({
         kind: 'await_finalize',
         f: fromFencedReceipt(spendOnce(f)),
-        resume: (outcome: Variant<FinalizeOutcome>): Variant<Step> => fromStep(spendOnce(resume)(intoFinalizeOutcome(accepted<Variant<FinalizeOutcome>>('finalize')(parseFinalizeOutcome(outcome))))),
+        resume: (outcome: Variant<FinalizeOutcome>): Variant<Step> => fromStep(spendOnce(resume)(intoFinalizeOutcome(accepted<Variant<FinalizeOutcome>>('finalize')(parseFinalizeOutcome(outcome)), owner)), owner),
       }),
     (c, z, resume) =>
       frozen({
         kind: 'await_settle',
         c: fromClaim(c),
         z: fromFinalizedReceipt(spendOnce(z)),
-        resume: (outcome: Variant<SettleOutcome>): Variant<Step> => fromStep(spendOnce(resume)(intoSettleOutcome(accepted<Variant<SettleOutcome>>('settle')(parseSettleOutcome(outcome))))),
+        resume: (outcome: Variant<SettleOutcome>): Variant<Step> => fromStep(spendOnce(resume)(intoSettleOutcome(accepted<Variant<SettleOutcome>>('settle')(parseSettleOutcome(outcome)))), owner),
       }),
     (c, cause, resume) =>
       frozen({
         kind: 'await_strand',
         c: fromClaim(c),
         cause: fromDefinitive(cause),
-        resume: (outcome: Variant<StrandOutcome>): Variant<Step> => fromStep(spendOnce(resume)(intoStrandOutcome(accepted<Variant<StrandOutcome>>('strand')(parseStrandOutcome(outcome))))),
+        resume: (outcome: Variant<StrandOutcome>): Variant<Step> => fromStep(spendOnce(resume)(intoStrandOutcome(accepted<Variant<StrandOutcome>>('strand')(parseStrandOutcome(outcome)))), owner),
       }),
   );
 
-// The attempt begins: its arguments are parsed on the way in like any other value.
-export const start = (fileId: string): Variant<Step> =>
-  fromStep(K_ingest_bridge.start(accepted<string>('file-id')(boundary(z.string())(fileId))));
+// An attempt: its first step, and its audit, readable at any time by the
+// interpreter, so a halt reports what was outstanding as a finish does. The
+// owner is a fresh identity per attempt; the arguments are parsed on the way
+// in like any other value.
+export type Attempt = {
+  readonly first: Variant<Step>;
+  readonly outstanding: () => ReadonlyArray<Variant<Outstanding>>;
+};
+
+export const begin = (fileId: string): Attempt => {
+  const owner = {};
+  return frozen({ first: fromStep(K_ingest_bridge.start(accepted<string>('file-id')(boundary(z.string())(fileId))), owner), outstanding: () => outstandingOf(owner) });
+};

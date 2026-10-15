@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { start, type Step, type TargetOutcome, type TransferOutcome } from './boundary/ingest.ffi.js';
+import { begin, type Step, type TargetOutcome, type TransferOutcome } from './boundary/ingest.ffi.js';
 import type { Variant } from '../../src/variant.js';
 
 const ready: Variant<TargetOutcome> = { kind: 'ready', uri: 'https://example.org/a.bam', destKey: 'files/a.bam' };
@@ -16,30 +16,30 @@ const expect = <K extends keyof Step>(step: Variant<Step>, kind: K): Extract<Var
 };
 
 const atTransfer = () => {
-  const claim = expect(expect(start('f-1'), 'await_target').resume(ready), 'await_claim');
+  const claim = expect(expect(begin('f-1').first, 'await_target').resume(ready), 'await_claim');
   return expect(claim.resume(claimed), 'await_transfer');
 };
 
 test('the attempt begins suspended on the first command, carrying its argument', () => {
-  const step = expect(start('f-1'), 'await_target');
+  const step = expect(begin('f-1').first, 'await_target');
   assert.equal(step.fileId, 'f-1');
   assert.ok(Object.isFrozen(step));
 });
 
 test('an outcome is parsed on its way in: a field of the wrong type halts the attempt, naming it', () => {
-  const step = expect(start('f-1'), 'await_target');
+  const step = expect(begin('f-1').first, 'await_target');
   const wrong = { kind: 'ready', uri: 1, destKey: 'files/a.bam' } as unknown as Variant<TargetOutcome>;
   assert.throws(() => step.resume(wrong), /target: uri: /);
 });
 
 test('an outcome with a key its case does not declare halts the attempt', () => {
-  const step = expect(start('f-1'), 'await_target');
+  const step = expect(begin('f-1').first, 'await_target');
   const extra = { kind: 'gone', hidden: 1 } as unknown as Variant<TargetOutcome>;
   assert.throws(() => step.resume(extra), /target: /);
 });
 
 test('an outcome of a kind the operation does not have halts the attempt', () => {
-  const step = expect(start('f-1'), 'await_target');
+  const step = expect(begin('f-1').first, 'await_target');
   const foreign = { kind: 'claimed', c: { fileId: 'f-1', token: 't' } } as unknown as Variant<TargetOutcome>;
   assert.throws(() => step.resume(foreign), /target: kind: /);
 });
@@ -54,7 +54,7 @@ test('an int is a safe integer: a fraction, a string of digits and 2^53 are each
 });
 
 test('a value handed in is copied: changing the object afterwards changes nothing the core carries', () => {
-  const target = expect(start('f-1'), 'await_target');
+  const target = expect(begin('f-1').first, 'await_target');
   const outcome = { kind: 'ready', uri: 'https://example.org/a.bam', destKey: 'files/a.bam' };
   const claim = expect(target.resume(outcome as Variant<TargetOutcome>), 'await_claim');
   outcome.uri = 'https://elsewhere.example/b.bam';
@@ -72,7 +72,7 @@ test('what crosses out is frozen all the way down: the step, and the receipt it 
 });
 
 test('a step is resumed once: the second resumption of the same step halts', () => {
-  const target = expect(start('f-1'), 'await_target');
+  const target = expect(begin('f-1').first, 'await_target');
   assert.equal(target.resume(ready).kind, 'await_claim');
   assert.throws(() => target.resume({ kind: 'gone' }), /spent once/);
 });
@@ -87,6 +87,23 @@ test('a receipt the shell minted comes back as what it minted, and only that', (
   assert.deepEqual(settle.z, { fileId: 'f-1', bytes: 48 });
   const done = expect(settle.resume({ kind: 'settle_done' }), 'done');
   assert.deepEqual(done.status, { kind: 'succeeded', bytes: 48 });
+  assert.deepEqual(done.outstanding, []);
+});
+
+test('the audit names a receipt issued and not yet spent, per attempt, and clears when its operation is reached', () => {
+  const attempt = begin('f-1');
+  const transfer = expect(expect(expect(attempt.first, 'await_target').resume(ready), 'await_claim').resume(claimed), 'await_transfer');
+  const fence = expect(transfer.resume({ kind: 'transferred', bytes: 48 }), 'await_fence');
+  assert.deepEqual(attempt.outstanding(), []);
+  const finalize = expect(fence.resume({ kind: 'held', f: { fileId: 'f-1', bytes: 48 } }), 'await_finalize');
+  // The fenced receipt was issued by that answer and spent in the same resumption, when the core reached
+  // finalize with it and the step was read. A receipt is outstanding when the core holds it across other
+  // commands, or drops it: then the done step and attempt.outstanding() name it, as the core's mutation
+  // "drop a receipt" shows.
+  assert.deepEqual(attempt.outstanding(), []);
+  void finalize;
+  const other = begin('f-2');
+  assert.deepEqual(other.outstanding(), []);
 });
 
 test('two attempts on one file are independent: each holds its own claim and its own steps', () => {

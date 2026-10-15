@@ -195,22 +195,48 @@ case field in a `fold` handler, a field of a command outcome.
 This is linear dataflow, not occurrence counting. Koka's type system
 does not track it: a core may hand the same receipt to two operations, or
 drop one, and compile (`fip` ownership reports both, as warnings, for
-functions that may not allocate; it cannot host an attempt). So Δ is
-**enforced at runtime, in the shell, and not yet statically.** What holds:
-a receipt an operation takes is spent when the step for that operation is
-read, through the same spent set `Sealed.spend` keeps, and a second
-operation on the same receipt halts the attempt; a step's resumption is
-spent when it is called, so a suspension resumed twice halts; a receipt's
-fields are read from the registry the shell minted it into, by identity,
-so a value the core produced by any route other than an outcome (Koka
-derives a copy-with-update for every constructor, hidden or not) halts
-as a value the shell did not mint; and the ledger records every command
-and outcome. Dropping is not yet refused: a run that ends with a receipt
-issued and never spent is not reported, which is the next piece of the
-ledger. A static pass over the core for the rule above, with a receipt's
-flow through matches as paths and the attempt's returns as the points
-where Δ′ = ∅ is required, is 0.7; it reads the compiler's core output, not
-the source, and it is the one checker left to write.
+functions that may not allocate; it cannot host an attempt; and a `linear
+effect` is a statement about resumptions, not about values). So Δ is
+**enforced at runtime, in the shell, and not yet statically.**
+
+Two kinds of evidence cross the FFI, and only one is linear. A *claim* is
+a capability held for the whole attempt: the core hands it to any number
+of operations, and the shell checks its provenance (the registry) but
+does not spend it. A *receipt* (a type whose name ends in `-receipt`) is
+spent by the one operation that takes it. What holds for receipts:
+
+- a receipt is minted for an owner, the attempt it is issued to, when the
+  shell's answer carrying it is parsed, and its fields are read from the
+  registry by identity, so a value the core produced by any route other
+  than an outcome (Koka derives a copy-with-update for every constructor,
+  hidden or not) halts the attempt as a value the shell did not mint;
+- a receipt is spent, through the same spent set `Sealed.spend` keeps,
+  when the step for the operation that takes it is read, and a second
+  operation on the same receipt halts the attempt;
+- a step's resumption is spent when it is called, so a suspension resumed
+  twice halts the attempt;
+- the ownership audit: at every terminal, the registry answers what was
+  minted for this attempt and never spent. A finished run carries it with
+  its status; a halted run (a performer or the FFI threw) carries it with
+  the ledger so far. A core that drops a receipt (`Held(f) -> Succeeded(bytes)`)
+  compiles, and its first finished run names the receipt; the ingest
+  example's shell treats a finished run with one outstanding as a defect.
+  `examples/ingest/core/mutations.mjs` holds that loosening, and the two
+  before it, as mutations the tests refuse.
+
+The ledger is the event history, every command and its outcome in order;
+the audit is what makes the terminal condition of §6 checkable at
+runtime. Neither is the static rule.
+
+**0.7, the one checker left to write.** A pass over the core for the
+use and drop of `-receipt` bindings: refuse a binding used twice on one
+path, a binding live at a return of the attempt, and match arms that
+join with unequal sets of live receipts. The input is the compiler's
+initial core (`koka --showicore`, the typed core right after type
+checking, with function bodies; the interface file `.kki` carries types
+only), and the pass fails closed: a form it does not recognize is a
+refusal, not a pass. Until it exists, this section's runtime statement
+is the whole of what holds for Δ, and no other section claims more.
 
 ## 5. The kernel's contract
 
@@ -231,15 +257,24 @@ Assumed by the theorem, tested in `test/`:
 - K4 `partition`, `mapNonEmpty`, `occupancy`, `compare`: pure, as tested.
 - K5 the interpreter: performs exactly the command the core suspended
   on, through the performer of that name, resumes the core with the
-  outcome it returned, and keeps the ledger of §4.
+  outcome it returned, and keeps the ledger of §4 in one append-only
+  builder (`ledger.ts`), written once per command and read as a frozen
+  copy; a run finishes with the status, the ledger and the audit, or
+  halts with the error, the ledger so far and the audit.
 - K6 the FFI: every value crossing into the core is parsed by its schema
   (a defect of the shell halts, naming the field), built through the
   compiled module's constructors from the parsed copy, and frozen; every
   value crossing out is read through a generated fold into a frozen
-  Variant, or, for a receipt, from the registry by identity; a
-  resumption is called at most once; a receipt is spent at most once.
-  `examples/ingest/ffi.test.ts` holds each of these; the generator's
-  output is itself linted under the boundary and effects tiers.
+  Variant, or, for a claim or a receipt, from the registry by identity;
+  a resumption is called at most once; a receipt is spent at most once;
+  the audit of §4 is read at every terminal. `examples/ingest/ffi.test.ts`
+  holds each of these; the generator's output is itself linted under the
+  boundary and effects tiers.
+- K7 the one door: the compiled modules under `.build/` hold raw
+  constructors and resumptions, and the generated FFI is the only module
+  that imports them by value; every tier refuses the import, a type-only
+  import (as a gate makes) is allowed, and `fixtures/rules/*build*` and
+  the ingest core's two lint mutations hold it.
 
 ## 6. The intended theorem
 
@@ -251,16 +286,18 @@ the constructs the tiers leave available:
 2. every `fold` is total;
 3. evaluation of a domain function is a function of its arguments: it
    performs no effect;
-4. a run that ends in success has consumed every piece of spent evidence
-   issued to it exactly once, and a run that ends otherwise names what it
-   left unspent;
+4. a run names, at its terminal, every receipt issued to it and not
+   spent; no receipt is spent twice; and (the static half, 0.7) a core is
+   refused when a path uses a receipt twice or ends with one live;
 5. 1–4 are preserved by execution.
 
 Proof by induction on the evaluation of accepted programs, with the
 kernel as the trusted base. For the core, 1–3 are the compiler's theorems
 (nominal types, exhaustive matches and effect rows), restricted to what
-the gate leaves; 4 is the ledger's, at runtime, until the pass of §4.
-For the shell, the argument is against the tiers and K1–K6.
+the gate leaves; the runtime half of 4 is the registry's and the spent
+set's (K6), checked at every terminal, and the static half is the pass
+of §4, not yet written. For the shell, the argument is against the tiers
+and K1–K7.
 
 ## 7. What is excluded, and what is not
 
@@ -302,7 +339,9 @@ process that holds the state and refuses a bad transition.
 The core's checker is the Koka compiler, which refuses the programs of §3
 by construction rather than by a list of forbidden spellings; the gate is
 the list that remains, seven tokens and an import whitelist, and it is a
-gate, not a type checker. The trusted base is therefore: the pinned Koka
+gate, not a type checker. On the shell's side one rule keeps the FFI the
+only door: a value import of a compiled module is refused in every tier
+but the generated FFI's own (K7). The trusted base is therefore: the pinned Koka
 compiler and its JavaScript backend, on the subset the gate leaves; the
 generator, whose output is linted under the shell's tiers and whose
 guarantees are tested in `examples/ingest/ffi.test.ts`; TypeScript's type

@@ -3,10 +3,14 @@
 // The interpreter. It performs each command the core suspends on, in order,
 // through the Effects record, resumes the core with the outcome, and keeps the
 // ledger: every command and its outcome, as data, in the order they happened.
+// A run finishes with the status and the ownership audit, or halts, when a
+// performer or the FFI threw, with the ledger so far and the audit at that
+// point; either way nothing issued is dropped silently.
 
+import { ledger } from '../../../src/ledger.js';
 import { frozen } from '../../../src/sealed.js';
 import { fold, type Variant } from '../../../src/variant.js';
-import { start, type Step, type Definitive, type IngestStatus, type TargetOutcome, type MarkOutcome, type Claim, type ClaimOutcome, type TransferOutcome, type FencedReceipt, type FenceOutcome, type FinalizedReceipt, type FinalizeOutcome, type SettleOutcome, type StrandOutcome } from '../boundary/ingest.ffi.js';
+import { begin, type Outstanding, type Step, type Definitive, type IngestStatus, type TargetOutcome, type MarkOutcome, type Claim, type ClaimOutcome, type TransferOutcome, type FencedReceipt, type FenceOutcome, type FinalizedReceipt, type FinalizeOutcome, type SettleOutcome, type StrandOutcome } from '../boundary/ingest.ffi.js';
 
 // What the shell does for each command. Each returns that command's outcome.
 export type Effects = {
@@ -32,30 +36,72 @@ export type Entry = {
   strand: { readonly c: Claim; readonly cause: Variant<Definitive>; readonly outcome: Variant<StrandOutcome> };
 };
 
-export type Run = { readonly status: Variant<IngestStatus>; readonly ledger: ReadonlyArray<Variant<Entry>> };
+export type Run = {
+  finished: { readonly status: Variant<IngestStatus>; readonly ledger: ReadonlyArray<Variant<Entry>>; readonly outstanding: ReadonlyArray<Variant<Outstanding>> };
+  halted: { readonly error: Error; readonly ledger: ReadonlyArray<Variant<Entry>>; readonly outstanding: ReadonlyArray<Variant<Outstanding>> };
+};
 
 export const drive =
   (fx: Effects) =>
-  (fileId: string): Promise<Run> => {
-    const loop = (step: Variant<Step>, ledger: ReadonlyArray<Variant<Entry>>): Promise<Run> =>
-      fold<Step, Promise<Run>>({
-        done: ({ status }) => Promise.resolve({ status, ledger }),
+  (fileId: string): Promise<Variant<Run>> => {
+    const attempt = begin(fileId);
+    const noted = ledger<Variant<Entry>>();
+    const loop = (step: Variant<Step>): Promise<Variant<Run>> =>
+      fold<Step, Promise<Variant<Run>>>({
+        done: ({ status, outstanding }) => Promise.resolve({ kind: 'finished', status, ledger: noted.entries(), outstanding }),
         await_target: ({ fileId, resume }) =>
-          fx.target(fileId).then((outcome) => loop(resume(outcome), [...ledger, frozen({ kind: 'target', fileId, outcome })])),
+          fx.target(fileId).then((outcome) => {
+            const next = resume(outcome);
+            noted.note(frozen({ kind: 'target', fileId, outcome }));
+            return loop(next);
+          }),
         await_mark_never_started: ({ fileId, resume }) =>
-          fx.markNeverStarted(fileId).then((outcome) => loop(resume(outcome), [...ledger, frozen({ kind: 'mark_never_started', fileId, outcome })])),
+          fx.markNeverStarted(fileId).then((outcome) => {
+            const next = resume(outcome);
+            noted.note(frozen({ kind: 'mark_never_started', fileId, outcome }));
+            return loop(next);
+          }),
         await_claim: ({ fileId, resume }) =>
-          fx.claim(fileId).then((outcome) => loop(resume(outcome), [...ledger, frozen({ kind: 'claim', fileId, outcome })])),
+          fx.claim(fileId).then((outcome) => {
+            const next = resume(outcome);
+            noted.note(frozen({ kind: 'claim', fileId, outcome }));
+            return loop(next);
+          }),
         await_transfer: ({ c, uri, destKey, resume }) =>
-          fx.transfer(c, uri, destKey).then((outcome) => loop(resume(outcome), [...ledger, frozen({ kind: 'transfer', c, uri, destKey, outcome })])),
+          fx.transfer(c, uri, destKey).then((outcome) => {
+            const next = resume(outcome);
+            noted.note(frozen({ kind: 'transfer', c, uri, destKey, outcome }));
+            return loop(next);
+          }),
         await_fence: ({ c, bytes, resume }) =>
-          fx.fence(c, bytes).then((outcome) => loop(resume(outcome), [...ledger, frozen({ kind: 'fence', c, bytes, outcome })])),
+          fx.fence(c, bytes).then((outcome) => {
+            const next = resume(outcome);
+            noted.note(frozen({ kind: 'fence', c, bytes, outcome }));
+            return loop(next);
+          }),
         await_finalize: ({ f, resume }) =>
-          fx.finalize(f).then((outcome) => loop(resume(outcome), [...ledger, frozen({ kind: 'finalize', f, outcome })])),
+          fx.finalize(f).then((outcome) => {
+            const next = resume(outcome);
+            noted.note(frozen({ kind: 'finalize', f, outcome }));
+            return loop(next);
+          }),
         await_settle: ({ c, z, resume }) =>
-          fx.settle(c, z).then((outcome) => loop(resume(outcome), [...ledger, frozen({ kind: 'settle', c, z, outcome })])),
+          fx.settle(c, z).then((outcome) => {
+            const next = resume(outcome);
+            noted.note(frozen({ kind: 'settle', c, z, outcome }));
+            return loop(next);
+          }),
         await_strand: ({ c, cause, resume }) =>
-          fx.strand(c, cause).then((outcome) => loop(resume(outcome), [...ledger, frozen({ kind: 'strand', c, cause, outcome })])),
+          fx.strand(c, cause).then((outcome) => {
+            const next = resume(outcome);
+            noted.note(frozen({ kind: 'strand', c, cause, outcome }));
+            return loop(next);
+          }),
       })(step);
-    return loop(start(fileId), []);
+    return loop(attempt.first).catch((thrown: unknown) => ({
+      kind: 'halted',
+      error: thrown instanceof Error ? thrown : new Error(String(thrown)),
+      ledger: noted.entries(),
+      outstanding: attempt.outstanding(),
+    }));
   };

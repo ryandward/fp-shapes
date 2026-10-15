@@ -39,8 +39,8 @@ const scripts = dirname(new URL(import.meta.url).pathname);
 let held = 0;
 let total = 0;
 
-// Which check refused the mutated tree: the first of gate, compile, typecheck, test.
-const refusedBy = (dir, config, tests, runner) => {
+// Which check refused the mutated tree: the first of gate, compile, typecheck, lint, test.
+const refusedBy = (dir, config, tests, runner, lint) => {
   const built = spawnSync(process.execPath, [join(scripts, 'koka-build.mjs'), config], { cwd: dir, encoding: 'utf8', env: process.env });
   if (built.status !== 0) {
     const said = `${built.stdout}${built.stderr}`;
@@ -48,6 +48,11 @@ const refusedBy = (dir, config, tests, runner) => {
   }
   const typed = spawnSync(join(root, 'node_modules', '.bin', 'tsc'), ['-p', tsconfig], { cwd: dir, encoding: 'utf8' });
   if (typed.status !== 0) return 'typecheck';
+  if (lint !== undefined) {
+    const [linter, ...lintFlags] = lint;
+    const linted = spawnSync(join(root, linter), lintFlags, { cwd: dir, encoding: 'utf8' });
+    if (linted.status !== 0) return 'lint';
+  }
   const [command, ...flags] = runner;
   const tested = spawnSync(join(root, command), [...flags, ...tests], { cwd: dir, encoding: 'utf8' });
   if (tested.status !== 0) return 'test';
@@ -72,7 +77,7 @@ for (const listPath of lists) {
       if (mutated === source) throw new Error(`${name}: the edit to ${file} found nothing to change; the mutation needs updating`);
       writeFileSync(path, mutated);
     }
-    const by = refusedBy(dir, list.config, list.tests, list.runner ?? ['node_modules/.bin/tsx', '--test']);
+    const by = refusedBy(dir, list.config, list.tests, list.runner ?? ['node_modules/.bin/tsx', '--test'], list.lint);
     rmSync(dir, { recursive: true, force: true });
     const ok = by === expected;
     held += ok ? 1 : 0;

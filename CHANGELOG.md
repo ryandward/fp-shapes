@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.6.1
+
+The 0.6 boundary finished: the one door, the ownership audit, the
+vocabulary, and a linear-time ledger.
+
+- The compiled core (`.build/`) is imported by value only by its generated
+  FFI. A new `compiled` rule group refuses a value import, re-export or
+  dynamic import of a `.build/` module in every tier; a type-only import,
+  as a gate makes, is allowed; a dynamic import whose module is not a
+  string is refused in `effects/`. `**/boundary/*.ffi.ts` is a tier of its
+  own, the boundary tier with that one exception. Nine fixtures; the
+  ingest core's mutation list gains two `lint` mutations (a raw import
+  from shell-side domain code, and from an effects module).
+- The ledger is an ownership ledger. A claim or a receipt is minted for
+  an owner, the attempt it is issued to; the registry answers per owner
+  what was minted and never spent; the generated `begin()` returns the
+  attempt's first step and its audit, and every `done` step carries the
+  audit. The interpreter's run is a Variant: `finished` with the status,
+  the ledger and the audit, or `halted` with the error, the ledger so far
+  and the audit, so a throwing performer or a refused outcome reports
+  what was outstanding. The ingest example treats a finished run with a
+  receipt outstanding as a defect. Mutation "drop a receipt"
+  (`Held(f) -> Succeeded(bytes)`) compiles and is refused by the tests.
+- The vocabulary: a claim is a capability held for the whole attempt and
+  handed to any number of operations, with its provenance checked; a
+  receipt (`…-receipt`) is spent by the one operation that takes it. The
+  SPEC, the README, the guarantees map and the integration brief say so,
+  and SPEC §6 no longer attributes the terminal condition to the ledger:
+  the runtime half is the audit's, the static half is 0.7's.
+- The kernel's append-only builder, `ledger.ts`, with its own tier: the
+  interpreter writes one entry per command and reads a frozen copy at the
+  end, instead of copying the ledger on every hop.
+- `scripts/koka-mutations.mjs` takes `--tsconfig`, a test `runner` and a
+  `lint` command, as a host's staged check needs, and reports `lint` as
+  a refusing stage.
+- SPEC §4 states 0.7 precisely: a pass over the compiler's initial core
+  (`--showicore`, which carries typed function bodies; `.kki` carries
+  types only) for the use and drop of `-receipt` bindings, failing closed
+  on any form it does not recognize.
+
 ## 0.6.0
 
 The command algebra, with the domain core in Koka.

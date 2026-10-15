@@ -10,7 +10,10 @@
 //   effects     **/effects/**         perform I/O: try/throw/branch, the clock, the
 //                                     environment, timers; name unknown
 //   foreign     **/effects/**/foreign.ts   describe other code as it is
-//   primitives  **/sealed.ts (the one class, the one brand check, the one halt)
+//   ffi         **/boundary/*.ffi.ts  generated from a Koka core: a boundary module, and the one
+//                                     place a compiled module (…/.build/…) is imported
+//   primitives  **/sealed.ts (the one class, the one brand check, the one halt, the registries)
+//               **/ledger.ts (the one append-only builder)
 //               **/total.ts (type-level utilities; names `unknown`, `undefined`)
 //               **/variant.ts (the combinators; the one generic record update and the one builder)
 //   typetests   **/*.typetest.ts      hold the compiler directives, each with a description
@@ -174,6 +177,25 @@ const rules = {
     rule("MemberExpression[object.name='Math'][property.name='random'], MemberExpression[object.name='Math'][property.value='random']", 'a random value is drawn in effects/ and passed in as a fact'),
   ],
   brackets: [rule("MemberExpression[computed=true][property.type='Literal']", 'read a field by its name; a fact here is a closed record')],
+  // A compiled core (the modules scripts/koka-build.mjs writes under .build/)
+  // holds raw constructors and resumptions, outside the parse, the registry
+  // and the spent set. Its generated FFI is the one module that imports it;
+  // a type-only import, as a gate makes, carries no value.
+  compiled: [
+    rule(
+      "ImportDeclaration[importKind!='type'][source.value=/(^|\\/)\\.build\\//] > ImportSpecifier[importKind!='type']",
+      'a compiled core is reached through its generated FFI (boundary/<core>.ffi.ts); the compiled module holds raw constructors and resumptions',
+    ),
+    rule("ImportDeclaration[importKind!='type'][source.value=/(^|\\/)\\.build\\//] > ImportDefaultSpecifier", 'a compiled core is reached through its generated FFI (boundary/<core>.ffi.ts); the compiled module holds raw constructors and resumptions'),
+    rule("ImportDeclaration[importKind!='type'][source.value=/(^|\\/)\\.build\\//] > ImportNamespaceSpecifier", 'a compiled core is reached through its generated FFI (boundary/<core>.ffi.ts); the compiled module holds raw constructors and resumptions'),
+    rule(
+      "ExportNamedDeclaration[exportKind!='type'][source.value=/(^|\\/)\\.build\\//] > ExportSpecifier[exportKind!='type']",
+      'a compiled core is reached through its generated FFI (boundary/<core>.ffi.ts); the compiled module holds raw constructors and resumptions',
+    ),
+    rule("ExportAllDeclaration[exportKind!='type'][source.value=/(^|\\/)\\.build\\//]", 'a compiled core is reached through its generated FFI (boundary/<core>.ffi.ts); the compiled module holds raw constructors and resumptions'),
+    rule("ImportExpression[source.value=/(^|\\/)\\.build\\//]", 'a compiled core is reached through its generated FFI (boundary/<core>.ffi.ts); the compiled module holds raw constructors and resumptions'),
+    rule("ImportExpression:not([source.type='Literal'])", 'a module is named as a string, so what is imported can be read'),
+  ],
 };
 
 const imports_name_their_file = [
@@ -296,6 +318,28 @@ export default [
     },
   },
   {
+    // ffi: a boundary module the generator writes for a compiled core, and the
+    // one place that core's compiled modules are imported
+    files: ['**/boundary/*.ffi.ts'],
+    rules: {
+      'no-restricted-syntax': syntax(...except('conditionals', 'comparisons', 'classification', 'unknown', 'predicates', 'brackets', 'compiled')),
+      'no-restricted-imports': boundaryImports,
+      'no-restricted-globals': boundaryGlobals,
+      'local/directives-are-gates': 'error',
+    },
+  },
+  {
+    // primitives: the one append-only builder, written once per entry and
+    // read as a frozen copy
+    files: ['**/ledger.ts'],
+    rules: {
+      'no-restricted-syntax': syntax(...except('mutation')),
+      'no-restricted-imports': imports,
+      'no-restricted-globals': globals,
+      'local/directives-are-gates': 'error',
+    },
+  },
+  {
     // primitives: the one class has its constructor, its ternary and its halt
     files: ['**/sealed.ts'],
     rules: {
@@ -352,6 +396,7 @@ export default [
       '@typescript-eslint/ban-ts-comment': ['error', { 'ts-expect-error': 'allow-with-description', minimumDescriptionLength: 10 }],
       'no-restricted-syntax': [
         ...syntax('assertions').filter((r) => typeof r === 'string' || !/declare/i.test(r.selector)),
+        ...rules.compiled,
         rule(
           "TSTypeReference[typeName.name=/^(Omit|Pick|Partial|Required|Exclude|Extract|NonNullable)$/]",
           'a gate asserts a declared type as it is; a derived subject proves a different type, so the declared type is what changes',

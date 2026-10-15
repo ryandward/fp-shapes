@@ -2,8 +2,9 @@
 // refuse it. See scripts/koka-mutations.mjs.
 
 export const config = 'examples/ingest/core/koka.json';
-export const copy = ['src', 'examples', 'test', 'scripts', 'tsconfig.json', 'eslint.config.js'];
+export const copy = ['src', 'examples', 'test', 'scripts', 'tsconfig.json', 'eslint.config.js', 'eslint.examples.js'];
 export const tests = ['examples/ingest/drive.test.ts', 'examples/ingest/ffi.test.ts'];
+export const lint = ['node_modules/.bin/eslint', '-c', 'eslint.examples.js', '--ignore-pattern', '**/fixtures/**', '--ignore-pattern', '**/.build/**', 'examples/ingest'];
 const edit = (file, from, to) => ({ file, from, to });
 const core = 'examples/ingest/core/ingest.kk';
 
@@ -28,7 +29,11 @@ export const mutations = [
   // the typecheck: the shell says what every case means
   ['add a cause the foreign vocabulary lacks', 'typecheck', edit(core, '  NeverStarted\n', '  NeverStarted\n  Quarantined(diagnostic: string)\n')],
   ['add a status the shell does not report', 'typecheck', edit(core, '  Stranded(cause: definitive)\n', '  Stranded(cause: definitive)\n  Quarantined(diagnostic: string)\n')],
+  // the lint: the shell reaches the core only through the generated FFI
+  ['import the compiled core from shell-side domain code', 'lint', edit('examples/ingest/report.ts', "import { fold, type Variant } from '../../src/variant.js';", "import { fold, type Variant } from '../../src/variant.js';\nimport { RowGone } from './core/.build/ingest.js';\nexport const gone = RowGone;")],
+  ['import the compiled bridge from an effects module', 'lint', edit('examples/ingest/effects/run.ts', "import { adapt } from './adapt.js';", "import { adapt } from './adapt.js';\nimport { start } from '../core/.build/ingest__bridge.js';\nexport const raw = start;")],
   // the tests: what the FFI keeps at runtime
   ['spend a receipt twice', 'test', edit(core, '    Finalized(z) -> settle-stage(c, z, bytes)', '    Finalized(z) -> match finalize(f) { Finalized(z2) -> settle-stage(c, z2, bytes); Rejected(cause) -> record(c, cause); FinalizeDied(d) -> WorkerDied(d) }')],
   ['hand on a copy of a receipt', 'test', edit(core, '    Held(f) -> finalize-stage(c, f, bytes)', '    Held(f) -> finalize-stage(c, f(bytes = 0), bytes)')],
+  ['drop a receipt', 'test', edit(core, '    Held(f) -> finalize-stage(c, f, bytes)', '    Held(f) -> Succeeded(bytes)')],
 ];
