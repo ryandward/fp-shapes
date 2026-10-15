@@ -7,13 +7,16 @@
 // reported as such: a check that holds while its guarantee is gone proves
 // nothing, and this is where that would show.
 //
-//   node scripts/koka-mutations.mjs <list.mjs>...
+//   node scripts/koka-mutations.mjs <list.mjs>... [--tsconfig tsconfig.json]
 //
 // A list file exports `config` (the koka.json of the core, relative to the
 // working directory), `copy` (the directories and files to copy into the
-// scratch tree), `tests` (the test files to run, as tsx takes them), and
-// `mutations`: [name, expected, ...edits], expected one of 'gate',
-// 'compile', 'typecheck', 'test', each edit { file, from, to }.
+// scratch tree), `tests` (the test files to run), `runner` (optional: the
+// command that runs them, relative to the working directory, default
+// `node_modules/.bin/tsx --test`), and `mutations`: [name, expected,
+// ...edits], expected one of 'gate', 'compile', 'typecheck', 'test', each
+// edit { file, from, to }. `--tsconfig` names the config the typecheck
+// uses inside the scratch tree, as scripts/mutations.mjs takes it.
 
 import { spawnSync } from 'node:child_process';
 import { chmodSync, cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -22,9 +25,12 @@ import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { findKoka } from './koka-build.mjs';
 
-const lists = process.argv.slice(2);
+const args = process.argv.slice(2);
+const tsconfigAt = args.indexOf('--tsconfig');
+const tsconfig = tsconfigAt === -1 ? 'tsconfig.json' : args[tsconfigAt + 1];
+const lists = args.filter((_, i) => tsconfigAt === -1 || (i !== tsconfigAt && i !== tsconfigAt + 1));
 if (lists.length === 0) {
-  console.log('usage: node scripts/koka-mutations.mjs <list.mjs>...');
+  console.log('usage: node scripts/koka-mutations.mjs <list.mjs>... [--tsconfig tsconfig.json]');
   process.exit(2);
 }
 
@@ -34,15 +40,16 @@ let held = 0;
 let total = 0;
 
 // Which check refused the mutated tree: the first of gate, compile, typecheck, test.
-const refusedBy = (dir, config, tests) => {
+const refusedBy = (dir, config, tests, runner) => {
   const built = spawnSync(process.execPath, [join(scripts, 'koka-build.mjs'), config], { cwd: dir, encoding: 'utf8', env: process.env });
   if (built.status !== 0) {
     const said = `${built.stdout}${built.stderr}`;
     return /Error: gate:/.test(said) ? 'gate' : /Error: compile:/.test(said) ? 'compile' : `build (${said.split('\n').find((l) => /Error/.test(l)) ?? 'unknown'})`;
   }
-  const typed = spawnSync(join(root, 'node_modules', '.bin', 'tsc'), ['-p', 'tsconfig.json'], { cwd: dir, encoding: 'utf8' });
+  const typed = spawnSync(join(root, 'node_modules', '.bin', 'tsc'), ['-p', tsconfig], { cwd: dir, encoding: 'utf8' });
   if (typed.status !== 0) return 'typecheck';
-  const tested = spawnSync(join(root, 'node_modules', '.bin', 'tsx'), ['--test', ...tests], { cwd: dir, encoding: 'utf8' });
+  const [command, ...flags] = runner;
+  const tested = spawnSync(join(root, command), [...flags, ...tests], { cwd: dir, encoding: 'utf8' });
   if (tested.status !== 0) return 'test';
   return 'nothing';
 };
@@ -65,7 +72,7 @@ for (const listPath of lists) {
       if (mutated === source) throw new Error(`${name}: the edit to ${file} found nothing to change; the mutation needs updating`);
       writeFileSync(path, mutated);
     }
-    const by = refusedBy(dir, list.config, list.tests);
+    const by = refusedBy(dir, list.config, list.tests, list.runner ?? ['node_modules/.bin/tsx', '--test']);
     rmSync(dir, { recursive: true, force: true });
     const ok = by === expected;
     held += ok ? 1 : 0;
