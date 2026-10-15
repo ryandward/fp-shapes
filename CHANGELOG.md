@@ -1,8 +1,28 @@
 # Changelog
 
+## 0.4.6
+
+Findings from vendoring the lint config and the mutation runner into a host
+that has rules of its own.
+
+- `eslint.config.js` exports its pieces (`rules`, `syntax`, `everything`,
+  `except`, `imports`, `globals`). Flat config replaces a rule's setting
+  per config object, so a tier placed over a host's own
+  `no-restricted-syntax` or `no-restricted-imports` entry silently dropped
+  the host's list; a host composes one list from both.
+- `scripts/lint-fixtures.mjs` lints the files it is given regardless of the
+  config's `ignores`, so the fixtures run through a host config that ignores
+  the fixtures directory, as a host's lint must.
+- `scripts/mutations.mjs --map from=to` rewrites a path prefix in every
+  path a list names, so the library's own list runs against a vendored
+  copy; the library's list copies `src` alone, which is what a host
+  vendors.
+- README: composing the lint lists, running the fixtures and the mutations
+  from a host, and what the mutation runner's scratch tree holds.
+
 ## 0.4.5
 
-Findings from the first integration run past seam 1.
+Findings from the first vendoring into an application.
 
 - Lint tiers are relocatable: every `.ts` file is domain unless a path
   segment says otherwise, and the primitives tiers match `**/sealed.ts` and
@@ -67,7 +87,7 @@ Findings from vendoring into a `NodeNext` codebase.
 
 ## 0.4.0
 
-Tightenings from a first adoption attempt, in which an agent bounded a
+Tightenings from a first adoption attempt, in which an adopter bounded a
 completeness proof by hand to make it pass on a recursive cause type.
 
 - `Total<T>` and `Immutable<T>` answer `Recursive<T>` for a type that

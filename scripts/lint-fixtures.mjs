@@ -12,7 +12,7 @@ import { join } from 'node:path';
 const dir = process.argv[2] ?? 'fixtures/rules';
 const overrideConfigFile = process.argv[3];
 const files = (await readdir(dir)).filter((f) => f.endsWith('.ts')).sort();
-const results = await new ESLint(overrideConfigFile ? { overrideConfigFile } : {}).lintFiles(files.map((f) => join(dir, f)));
+const results = await new ESLint({ ignore: false, ...(overrideConfigFile ? { overrideConfigFile } : {}) }).lintFiles(files.map((f) => join(dir, f)));
 
 let short = 0;
 for (const result of results) {

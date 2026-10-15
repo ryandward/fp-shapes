@@ -93,16 +93,23 @@ const imports_name_their_file = [
   rule("ExportAllDeclaration[source.value=/^\\.\\.?\\//]:not([source.value=/\\.js$/])", 'a relative import names its file: add .js'),
 ];
 
-const syntax = (...groups) => ['error', ...imports_name_their_file, ...groups.flatMap((g) => rules[g])];
+export const syntax = (...groups) => ['error', ...imports_name_their_file, ...groups.flatMap((g) => rules[g])];
 
-const everything = Object.keys(rules);
-const except = (...omit) => everything.filter((g) => !omit.includes(g));
+// Flat config replaces a rule's setting per config object; it does not merge.
+// A host that already restricts syntax, imports or globals composes its own
+// entries with these, or the tiers replace them inside the tiered directories:
+//   import { rules, syntax, imports, globals } from './fp-shapes/eslint.config.js';
+//   { files: [...], rules: { 'no-restricted-syntax': [...syntax(...everything), ...mine] } }
+export { rules };
+
+export const everything = Object.keys(rules);
+export const except = (...omit) => everything.filter((g) => !omit.includes(g));
 
 // Libraries whose functions are typed `<T>(x: T) => T` or `T & U` and copy at
 // runtime, so their result carries a type its value did not earn.
 const cloners = ['lodash', 'lodash/*', 'lodash-es', 'lodash-es/*', 'immer', 'rfdc', 'clone', 'clone-deep', 'deepmerge', 'klona', 'klona/*', 'just-clone', 'ramda', 'ramda/*'];
 
-const imports = [
+export const imports = [
   'error',
   {
     patterns: [
@@ -113,7 +120,7 @@ const imports = [
   },
 ];
 
-const globals = ['error', { name: 'structuredClone', message: 'copy with spread; a Sealed value comes only from its owner' }, { name: 'Reflect', message: 'read fields through the type; a sealed payload is read through its opener' }];
+export const globals = ['error', { name: 'structuredClone', message: 'copy with spread; a Sealed value comes only from its owner' }, { name: 'Reflect', message: 'read fields through the type; a sealed payload is read through its opener' }];
 
 // A compiler directive lives in a typetest, where it is a gate with a description.
 const local = {

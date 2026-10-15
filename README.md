@@ -55,10 +55,53 @@ themselves re-checked. Three details decide whether it holds:
 Project references do not serve here when the imports run both ways at
 cutover.
 
+`tsconfig.json` is in the vendor set as the record of the flags; a host
+whose staged config already carries them does not need a second one.
+
 The lint tiers are keyed by path segment with no fixed root (`**/boundary/**`,
 `**/effects/**`, `**/sealed.ts`, `**/total.ts`, `**/*.typetest.ts`), so they
 apply from any working directory; a host prefixes them with its own
-directory only to limit their reach.
+directory only to limit their reach. ESLint's flat config replaces a rule's
+setting per config object; it does not merge. Where a host entry and a tier
+match the same file and name the same rule (`no-restricted-syntax`,
+`no-restricted-imports`, `no-restricted-globals`), the later entry's list
+is the only one in force, so a host's own restrictions and the tier's
+restrictions reach a file together only when one list is composed from
+both. The config exports its pieces for that: `rules` (the groups), `syntax`
+(`'error'` plus the import rule plus the named groups), `everything`,
+`except`, `imports` and `globals`.
+
+```js
+import fp, { syntax, everything, imports, globals } from './fp-shapes/eslint.config.js';
+const mine = [{ selector: '…', message: '…' }];
+export default [
+  { ignores: ['fp-shapes/fixtures/**'] },
+  ...fp,
+  { files: ['lib/**/*.ts'], ignores: ['**/boundary/**', '**/effects/**', '**/*.typetest.ts'],
+    rules: { 'no-restricted-syntax': [...syntax(...everything), ...mine], 'no-restricted-imports': imports, 'no-restricted-globals': globals } },
+];
+```
+
+A host entry placed after the tiers replaces them in every directory it
+matches, so it carves the tiered directories out (as above), comes before
+them, or composes each tier's own list (`syntax(...except('conditionals',
+'unknown', 'predicates'))` for `boundary/`). The host's lint ignores the
+vendored `fixtures/`, which break one rule each on purpose; `node
+fp-shapes/scripts/lint-fixtures.mjs fp-shapes/fixtures/rules eslint.config.js`
+lints them through the host's config regardless of that ignore and fails
+when a rule no longer fires there, which is the check that the composition
+and the host's ESLint version kept every rule.
+
+The mutation runner takes the library's own list from wherever the library
+was vendored: `node fp-shapes/scripts/mutations.mjs
+fp-shapes/src/gates.mutations.mjs --map src=fp-shapes/src --tsconfig
+tsconfig.strict.json`, from the host's root. `--map from=to` rewrites that
+prefix in every path the list names; `--tsconfig` names a config that
+carries the flags. The scratch tree holds the directories a list's `copy`
+names, that tsconfig, and a link to `node_modules`, nothing else: an
+application's list names every directory its staged program reads,
+declarations included, and the tsconfig stands alone (one that `extends` a
+file outside the copied directories names a file the scratch tree lacks).
 
 ## The library
 

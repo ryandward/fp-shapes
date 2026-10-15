@@ -3,12 +3,18 @@
 // A gate that holds while its guarantee is gone is a gate that proves
 // nothing; this is where that would show.
 //
-//   node scripts/mutations.mjs <list.mjs>... [--tsconfig tsconfig.json]
+//   node scripts/mutations.mjs <list.mjs>... [--tsconfig tsconfig.json] [--map src=lib/fp]
 //
 // A list file exports `gates` (the typetest file that must fail), `copy`
 // (the directories to copy into the scratch tree), and `mutations`. The
-// library's list is src/gates.mutations.mjs; an application keeps its own
-// beside its gates.
+// scratch tree holds those directories, the tsconfig, and a link to
+// node_modules, nothing else: a list names every directory its program reads,
+// and the tsconfig stands alone (one that `extends` a file outside the copied
+// directories names a file the scratch tree lacks). The library's list is
+// src/gates.mutations.mjs; an application keeps its own beside its gates.
+// `--map from=to` rewrites that path prefix in every path a list names, so a
+// vendored copy of the library runs the library's own list against wherever
+// it was vendored.
 
 import { execFileSync } from 'node:child_process';
 import { chmodSync, cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -17,11 +23,20 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const args = process.argv.slice(2);
-const tsconfigAt = args.indexOf('--tsconfig');
-const tsconfig = tsconfigAt === -1 ? 'tsconfig.json' : args[tsconfigAt + 1];
-const lists = args.filter((a, i) => tsconfigAt === -1 || (i !== tsconfigAt && i !== tsconfigAt + 1));
+const option = (name, fallback) => {
+  const at = args.indexOf(name);
+  return at === -1 ? fallback : args[at + 1];
+};
+const tsconfig = option('--tsconfig', 'tsconfig.json');
+const [mapFrom, mapTo] = option('--map', '=').split('=');
+const taken = new Set(['--tsconfig', '--map'].flatMap((name) => {
+  const at = args.indexOf(name);
+  return at === -1 ? [] : [at, at + 1];
+}));
+const lists = args.filter((_, i) => !taken.has(i));
+const mapped = (path) => (mapFrom !== '' && path.startsWith(mapFrom) ? mapTo + path.slice(mapFrom.length) : path);
 if (lists.length === 0) {
-  console.log('usage: node scripts/mutations.mjs <list.mjs>... [--tsconfig tsconfig.json]');
+  console.log('usage: node scripts/mutations.mjs <list.mjs>... [--tsconfig tsconfig.json] [--map src=lib/fp]');
   process.exit(2);
 }
 
@@ -30,7 +45,10 @@ let held = 0;
 let total = 0;
 
 for (const listPath of lists) {
-  const { gates, copy, mutations } = await import(pathToFileURL(resolve(listPath)).href);
+  const list = await import(pathToFileURL(resolve(listPath)).href);
+  const gates = mapped(list.gates);
+  const copy = list.copy.map(mapped);
+  const mutations = list.mutations.map(([name, ...edits]) => [name, ...edits.map((e) => ({ ...e, file: mapped(e.file) }))]);
   console.log(`${listPath}: ${mutations.length} mutations against ${gates}`);
   for (const [name, ...edits] of mutations) {
     total += 1;

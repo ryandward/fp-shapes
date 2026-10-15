@@ -2,8 +2,10 @@
 // Each entry: a name, then one or more edits (file, from, to) applied to a
 // copy of the tree. The build must then fail at a line of `gates`.
 
+// `copy` names what the gates need and nothing a host does not vendor, so
+// `--map src=<where the library lives>` runs this list from a host's root.
 export const gates = 'src/gates.typetest.ts';
-export const copy = ['src', 'test'];
+export const copy = ['src'];
 const edit = (file, from, to) => ({ file, from, to });
 
 export const mutations = [
