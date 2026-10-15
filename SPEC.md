@@ -277,3 +277,72 @@ effect types in Koka), at the cost of a second toolchain, a boundary at
 the foreign-function interface where values are parsed again, and no
 change to the island risk, since the host can still fail to call the
 core. That is an option held, not a step planned.
+
+## 10. The domain grammar
+
+The checker of §3 is an acceptor for a grammar, not a refuser over
+TypeScript. A form that is not in the grammar does not exist, so there is
+no alternative spelling of a refused construct; the syntax tiers remain
+the shell's discipline and a first pass, and the acceptor is the authority
+on what the domain is. The grammar is chosen so that the core is not
+Turing-complete and every accepted program terminates, by construction.
+
+**Modules.** Static named imports, acyclic, from: the kernel; a `boundary/`
+module, any name but `parse…`; an `effects/` module, only `open…` and
+`spend…` readers; another domain module. Type aliases. `export const`
+bindings in dependency order: a binding references only what is bound
+before it in the module, never itself, and never a later binding.
+
+**Expressions.** A literal (string, number, bigint, boolean, `null`, a
+template with expressions, an object literal with name keys, an array
+literal); an identifier, resolving to a parameter, an earlier `const` or
+an import; a property read by name; a call; an arrow function with every
+parameter annotated and the return annotated; inside a block body, `const`
+and `return` and nothing else. Not in the grammar: `as` in any form,
+including `as const`, which has no job once every binding is annotated.
+
+**Types.** A fact type (§1); `Variant<M>`; `ReadonlyArray` or `NonEmpty`
+of one; `Sealed<Tag, P, Use>` with `P` a fact type; a function type over
+these; the kernel's types. Domain functions are monomorphic; the kernel's
+generics are instantiated first-order at call sites by the acceptor. An
+effectful type (`void`, `Promise<X>`, `unknown`, a class) is not a type of
+the grammar, so an effectful parameter cannot be written, and a function
+parameter that can be written is a pure function by induction; the rule
+"no domain function calls a parameter" is not needed.
+
+**Calls.** To the kernel's combinators (`fold`, `partition`, `mapNonEmpty`,
+`compare`, `Sealed.open`, `Sealed.spend`), to a domain function, to a
+function parameter, or to an allowlisted method of a fact value (`map`,
+`flatMap`, seeded `reduce`, `concat`, `slice`, `join`), each bounded by a
+finite input.
+
+**Termination.** An accepted program is a term of a simply-typed calculus
+with records, variants and arrays and a fixed set of total constants. With
+no self-reference, acyclic imports and iteration only through combinators
+bounded by their inputs, the call graph is finite and acyclic and every
+evaluation terminates, given that the combinators terminate on finite
+data, which they do by their lengths. This is strong normalization for the
+simply-typed fragment, a standard result, and it is what "strongly
+normalizing by construction" means here. Purity is by the same
+construction: no call target in the grammar performs anything.
+
+**Exactness, effects, linearity.** Mandatory annotations and literal
+shapes make the acceptor's type system nearly syntactic: at every site a
+value flows, the declared type of the source and the declared type of the
+target have the same keys (§1 F1), with first-order unification for the
+kernel's generics. E = ∅ holds by the grammar. Δ (§4) is tracked by the
+acceptor over the same terms, with `fold` handlers as paths and the
+plane's terminal cases as the points where Δ′ = ∅ is required.
+
+**The perimeter.** `boundary(schema)` is the one bridge from the
+Turing-complete shell into the core: zod is the dynamic parser at the
+perimeter and nothing else, and the shell (`boundary/`, `effects/`, the
+interpreter) stays Turing-complete TypeScript held by the tiers, the
+kernel, the tests and the process boundary. The trusted base of §9 is
+unchanged, except that the acceptor, not tsc, decides what the domain is;
+tsc remains the compiler and a second opinion.
+
+**Consequences for 0.6.** The command algebra is written in this grammar:
+monomorphic steps over a plane's command and outcome types, annotated
+throughout, no recursion, trees and dictionaries as structures of facts
+walked by kernel folds.
