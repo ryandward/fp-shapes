@@ -25,7 +25,7 @@ compiler does not ask itself.
   kernel's builder, a run `finished` or `halted`. Five runtime tests.
 - **The acceptor** (`scripts/accept.mjs`, `fixtures/accept/`). A walk over
   every domain module with `tsc`'s program and checker, admitting a
-  grammar and refusing what it does not name. Six rules, each named in
+  grammar and refusing what it does not name. Seven rules, each named in
   its refusal: *grammar*; *exactness* at every declared type (a binding,
   a return against a declared or contextual return type, an argument, a
   `satisfies`), case by case through a union and element by element
@@ -38,9 +38,10 @@ compiler does not ask itself.
   all the way down: no function, accessor or method; a step and a sealed
   value carried, not read); *decision*, no call returns a boolean;
   *termination*, no binding reaches itself through a call or a reference;
-  *closed*, nothing `any`, `unknown` or generic, no `@ts-` directive.
-  Seventy-four fixtures, each a program tsc compiles; the run fails unless
-  every rule is the only rule refusing some fixture. `fixtures/open/` is
+  *reach*, every domain binding is reached from `effects/` or `boundary/`
+  by some path, so an island is refused; *closed*, nothing `any`,
+  `unknown` or generic, no `@ts-` directive. Seventy-four fixtures, each
+  a program tsc compiles and evidence for exactly one rule. `fixtures/open/` is
   closed: widening through a binding, an effect through a parameter and an
   imported boolean are refused. `npm run accept` and `check:accept`.
 - **Depth is not bounded.** `Deep<T>` and the four-container limit are
@@ -64,7 +65,7 @@ compiler does not ask itself.
   contract: the judgment with Δ in the step type, the acceptor's rules,
   the five kinds of evidence, the domain language, and what is open (two
   receipts of one name at once; a receipt across attempts, held at
-  runtime; a domain nothing drives).
+  runtime; a shell the host never calls).
 
 ## 0.6.2
 

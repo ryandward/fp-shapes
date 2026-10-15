@@ -238,11 +238,13 @@ settings make it so, with the tools already in the tree:
   facts, the `KindsOf` pin, the mutation list. The task is to make them
   green, and a red gate cannot be satisfied by a wrapper.
 
-What none of this holds is reachability: the acceptor says a module is a
-correct domain module, not that anything calls it. An unreachable-export
-check (`knip`, `ts-prune`) in the same build, and a test per entry point
-that drives the chain through a fake of the foreign modules, are the holds
-for that.
+An island, a correct domain module that nothing drives, is refused by the
+acceptor's reach rule: every domain binding must be reached, by some path
+of references, from a module in `effects/` or `boundary/`. A test reaching
+it does not count, since a test is how an island looks alive. What that
+rule cannot see is whether the shell's own entry is called by the host's
+program, which is outside the tree; a test per entry point that drives
+the chain through a fake of the foreign modules is the hold for that.
 
 ## The library
 
@@ -321,7 +323,7 @@ Five kinds of check, because the guarantees are of different kinds.
 - **The acceptor** (`scripts/accept.mjs`, `fixtures/accept/*.ts`): lint
   reads syntax; the acceptor reads types. It builds the program with
   `tsc`'s API and walks every domain module admitting a grammar (§11 of
-  `SPEC.md`); a form it does not name is refused. Six rules, each named in
+  `SPEC.md`); a form it does not name is refused. Seven rules, each named in
   its refusal: *grammar*; *exactness*, where a value meets a declared
   type its keys are exactly the declared keys, case by case through a
   union and element by element through an array, which tsc checks for
@@ -330,10 +332,12 @@ Five kinds of check, because the guarantees are of different kinds.
   record, a global, a package, a boundary or effects module, a `Promise`,
   `void` or `never`, and every parameter is a fact all the way down;
   *decision*, no call returns a boolean; *termination*, no binding reaches
-  itself; *closed*, nothing `any`, `unknown`, generic or under a
+  itself; *reach*, every binding is reached from the shell, so an island
+  is refused; *closed*, nothing `any`, `unknown`, generic or under a
   directive. Every fixture is a program tsc compiles and the acceptor
-  refuses with the expected sentence (or accepts, for `clean`), and the
-  run fails unless every rule is the only rule refusing some fixture.
+  refuses with the expected sentence and no other rule (or accepts, for
+  `clean`), so each fixture is evidence for one rule, and the run fails
+  unless every rule has one.
 - **Runtime** (`test/*.test.ts`): what the compiler leaves to the running
   program. `Object.assign({}, sealed)` and `structuredClone(sealed)` compile
   as sealed; `Sealed.open` and `Sealed.spend` reject them, and `spend`
@@ -384,9 +388,8 @@ description of the gate it pins.
 Not verified here but recommended on top: typescript-eslint
 `recommendedTypeChecked` (the `no-unsafe-*` rules that track `any` out of
 `JSON.parse` and ORM entities in the shell, where the acceptor does not
-look), `eslint-plugin-functional`, `eslint-plugin-eslint-comments` so an
-`eslint-disable` comment is itself subject to a rule, and `knip` or
-`ts-prune` for exports nothing reaches.
+look), `eslint-plugin-functional`, and `eslint-plugin-eslint-comments` so
+an `eslint-disable` comment is itself subject to a rule.
 
 `npm run check` runs all five on TypeScript 5.9.3, zod 4.6, ESLint 9, Node
 22: strict `tsc` (plus `exactOptionalPropertyTypes`,
@@ -490,5 +493,6 @@ module out of the domain's path segments so the acceptor does not walk it.
   the owed index; name them differently. A receipt carried from one
   attempt's chain into another is refused at runtime, by identity, not
   statically.
-- A domain that nothing drives passes every check here. Reachability is a
-  property of the host's tree; `knip` and a test per entry point hold it.
+- The reach rule says every domain binding is reached from the shell. It
+  does not say the shell is reached from the host's program; a test per
+  entry point holds that.

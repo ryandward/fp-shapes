@@ -31,9 +31,11 @@ stops holding:
   syntax tree with tsc's checker: a whitelist grammar, exactness at every
   declared type, the origin of every callee, the return of every call,
   the reach graph. It fails closed. Every fixture under `fixtures/accept/`
-  is a program tsc compiles, says what it expects, and the run fails
-  unless each of the six rules is the only rule refusing some fixture;
-  `clean` fixtures prove what the grammar admits. Seventy-four fixtures.
+  is a program tsc compiles and says what it expects; a fixture is
+  evidence for exactly one rule (the expected refusal is there and no
+  other rule refuses it), and the run fails unless each of the seven
+  rules has one; `clean` fixtures prove what the grammar admits.
+  Seventy-four fixtures.
 - **Runtime laws.** `test/*.test.ts` pin what the compiler cannot see:
   laundering refused at `open`, the deep freeze through every own
   property, one read of spent evidence, the boundary's fresh exact object,
@@ -149,6 +151,7 @@ names a `test()` in `test/`.
 | an ambient effect (`fetch`, `process`, `console`, timers, `performance`, `crypto`, `globalThis`, `require`, `eval`, `Function`, `Date`, `Date.now()`, `Math.random`) | D, B (`Date` D only) | lint; the acceptor refuses every global | fixtures `global-*`, `math-random`; boundary fixtures `date-now`, `date-new`; accept `global-call`, `random` |
 | a partial operation (`JSON.stringify`, unseeded `reduce`, `with`, `repeat`, `at`) | D, B | lint; the acceptor's fact-method allowlist | fixtures `json-stringify`, `reduce-no-seed`; accept `fact-method` |
 | a loop; a recursive function; a function that reaches itself through a reference | D (loops also B, E) | lint; the acceptor's grammar and termination rule | fixtures `loop-*`; accept `grammar-loop`, `self`, `cycle`, `cycle-reference`, `cycle-shorthand` |
+| an island: a domain binding nothing in `effects/` or `boundary/` reaches, by any path | D | the acceptor's reach rule, on the same graph termination walks | accept `island`; the fixtures' own shell (`fixtures/accept/effects/shell.ts`) is what reaches the rest |
 | `try`, `throw` | D, B | lint; the acceptor's grammar; `attempt` is the one `try`, in effects | fixtures `try`, `throw`; accept `grammar-try`, `grammar-throw`; test "attempt turns a rejection into a fact …" |
 | `new`, `await`, `async`, a generator, `typeof`, an expression statement, a body without a return, a default or optional parameter | D | the acceptor's grammar | accept `grammar-new`, `grammar-await`, `grammar-async`, `grammar-typeof`, `grammar-mutation`, `grammar-no-return`, `parameter-default`, `parameter-optional` |
 | a class | D, B, E | lint; the acceptor's grammar | fixtures `class`, `class-expression`; accept `grammar-class` |
@@ -173,7 +176,7 @@ names a `test()` in `test/`.
 | Anti-pattern | Refused by | Evidence |
 |---|---|---|
 | a lint rule no fixture needs | `scripts/rule-coverage.mjs` fails the check | 97/97 proved |
-| an acceptor rule no fixture needs, or a fixture that does not compile | the fixture run fails | 74/74 agree, 6/6 rules proved |
+| an acceptor rule no fixture needs, a fixture that does not compile, or a fixture two rules refuse | the fixture run fails | 74/74 agree, 7/7 rules proved |
 | a gate that holds while its guarantee is gone | `scripts/mutations.mjs` fails the check | 31/31 loosenings caught |
 | an ambient declaration under `src` | `check:dts` | — |
 | a lint tier that matches nothing from a host's directory | tiers keyed by path segment with no fixed root | host composition in the README |
@@ -186,10 +189,10 @@ names a `test()` in `test/`.
 - **A receipt carried into another attempt's chain.** Statically each
   chain's index balances; that a receipt spent in one chain was issued in
   that chain is the spent set's at runtime, by identity.
-- **A domain that is never driven.** Every check above is on the module;
-  none says a caller exists. An unreachable-export check (`knip`,
-  `ts-prune`) and a test per entry point are the holds, and they belong
-  to the host.
+- **A shell that is never called.** The reach rule refuses a domain
+  binding nothing in `effects/` or `boundary/` reaches; whether the host's
+  program calls the shell is outside the tree, and a test per entry point
+  is the hold for that.
 - **`Object.keys` is `string[]`**: a key read through it is not a fact's
   key until the boundary says so (the domain cannot call it; the boundary
   can).

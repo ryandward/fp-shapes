@@ -30,13 +30,19 @@
 //   decision     no call returns a boolean: a boolean is a decision made
 //                elsewhere; the domain reads a fact's field or folds a Variant
 //   termination  no domain function reaches itself through calls or references
+//   reach        every domain binding is reached, by some path of references,
+//                from a module under effects/ or boundary/ (not a test); one
+//                that is not is an island
 //   closed       a type the rules cannot decide (any, unknown, a type
 //                parameter) is refused where it appears
 //
 // Fixtures: every domain .ts under --fixtures says what it expects on one
 // line, `// expect: <substring of the refusal>` or `// expect: clean`; every
-// fixture compiles; each rule must be the only rule refusing some fixture,
-// so a rule removed is a fixture that fails.
+// fixture compiles; a fixture is refused by the rule it expects and no
+// other, so it is evidence for that rule alone; each rule must have one, so
+// a rule removed is a fixture that fails. The fixtures' shell
+// (effects/shell.ts) references every fixture's exports, so only the island
+// fixture is an island.
 
 import ts from 'typescript';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -493,6 +499,13 @@ const walkVariables = (statement) => {
     if (declaration.type !== undefined) checkExact(init, checker.getTypeAtLocation(init), checker.getTypeFromTypeNode(declaration.type), `the value bound to ${declaration.name.getText()}`);
     const symbol = ts.isIdentifier(declaration.name) ? checker.getSymbolAtLocation(declaration.name) : undefined;
     const entry = symbol === undefined ? null : declare(symbol, declaration.name.text, declaration);
+    if (ts.isObjectBindingPattern(declaration.name)) {
+      // const { done, suspend } = commands<…>(): each name is a domain binding
+      for (const element of declaration.name.elements) {
+        const bound = ts.isIdentifier(element.name) ? checker.getSymbolAtLocation(element.name) : undefined;
+        if (bound !== undefined) declare(bound, element.name.text, element);
+      }
+    }
     within(entry, () => walkExpression(init));
   }
 };
@@ -553,10 +566,45 @@ const checkTermination = () => {
   for (const symbol of domainFunctions.keys()) visit(symbol, []);
 };
 
+// Reach: every domain binding is reached from the shell. The roots are the
+// references into the domain from the shell modules under the walked paths
+// (effects/, boundary/; not tests, which reach what they test), and the
+// graph is the one termination walks. A binding outside the closure is an
+// island: a correct domain module that nothing drives.
+const isShellFile = (file) => {
+  const parts = file.split(sep);
+  return (parts.includes('effects') || parts.includes('boundary')) && !parts.includes('node_modules') && !file.endsWith('.test.ts') && !file.endsWith('.typetest.ts') && !file.endsWith('.d.ts');
+};
+
+const shellFiles = listed.filter(isShellFile).map((f) => program.getSourceFile(f)).filter((f) => f !== undefined);
+
+const checkReach = () => {
+  const roots = new Set();
+  const collect = (node) => {
+    if (ts.isIdentifier(node)) {
+      const target = aliased(checker.getSymbolAtLocation(node));
+      if (target !== undefined && domainFunctions.has(target)) roots.add(target);
+    }
+    ts.forEachChild(node, collect);
+  };
+  for (const file of shellFiles) collect(file);
+  const reached = new Set();
+  const visit = (symbol) => {
+    if (reached.has(symbol)) return;
+    reached.add(symbol);
+    for (const next of domainFunctions.get(symbol).reaches) if (domainFunctions.has(next)) visit(next);
+  };
+  for (const root of roots) visit(root);
+  for (const [symbol, { name, node }] of domainFunctions) {
+    if (!reached.has(symbol)) refuse(node, 'reach', `${name} is an island: nothing in effects/ or boundary/ reaches it, by any path; a domain binding is driven by the shell or reached from one that is`);
+  }
+};
+
 // ---------------------------------------------------------------- run
 
 for (const file of domainFiles) walkFile(file);
 checkTermination();
+checkReach();
 
 if (fixturesDir === null) {
   for (const r of refusals) console.log(`${r.file}:${r.line}:${r.column}  refused  ${r.rule}: ${r.message}`);
@@ -566,7 +614,7 @@ if (fixturesDir === null) {
 
 // Fixtures: each compiles and says what it expects; each rule is the only
 // rule refusing some fixture.
-const rules = ['grammar', 'exactness', 'purity', 'decision', 'termination', 'closed'];
+const rules = ['grammar', 'exactness', 'purity', 'decision', 'termination', 'reach', 'closed'];
 const provedBy = new Map(rules.map((r) => [r, []]));
 let short = 0;
 for (const file of domainFiles) {
@@ -591,12 +639,14 @@ for (const file of domainFiles) {
     short += ok ? 0 : 1;
     continue;
   }
+  // One fixture, one rule: the expected refusal is there, and no other rule
+  // refuses the fixture, so the fixture is evidence for that rule alone.
   const matching = mine.filter((m) => m.includes(expected));
-  const ok = matching.length > 0;
+  const producers = new Set(mine.map((m) => m.slice(0, m.indexOf(':'))));
+  const ok = matching.length > 0 && producers.size === 1;
   console.log(`${ok ? '✓' : '✗'} ${name}: ${expected}${ok ? '' : ` — saw ${mine.length === 0 ? 'nothing' : mine.join(' / ')}`}`);
   short += ok ? 0 : 1;
-  const producers = new Set(mine.map((m) => m.slice(0, m.indexOf(':'))));
-  if (ok && producers.size === 1) provedBy.get([...producers][0]).push(name);
+  if (ok) provedBy.get([...producers][0]).push(name);
 }
 let unproved = 0;
 for (const rule of rules) {

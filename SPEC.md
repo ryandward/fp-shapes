@@ -14,7 +14,7 @@ An accepted program is a tree laid out by path segment, in which
    not a test or typetest) is accepted by the acceptor: written in the
    grammar of §11, exact at every declared type, calling nothing but the
    kernel, itself and a fact's methods, producing no boolean by a call,
-   reaching nothing twice;
+   reaching nothing twice, reached from the shell;
 3. the gates compile and the mutations are refused.
 
 The judgment this document is written against is
@@ -169,7 +169,7 @@ the domain writes; it is not variable-level move semantics, which
 TypeScript does not have and the grammar does not need (a receipt is
 used by being passed to an operation, and the index says which).
 
-## 5. Termination
+## 5. Termination and reach
 
 Every domain function terminates. The grammar has no loop; the acceptor
 refuses a cycle in the reach graph of the domain's bindings, where a
@@ -178,6 +178,11 @@ function that may be called); the fact methods and the kernel's folds
 are bounded by their input; a fact is finite (`Recursive` is refused). So
 a domain function's evaluation is a finite tree of calls over finite
 data. Holds: the acceptor's termination rule.
+
+Every domain binding is driven. The same graph, read from the shell:
+the roots are the references into the domain from the modules under
+`effects/` and `boundary/` (not tests), and a domain binding outside
+their closure is refused as an island. Holds: the acceptor's reach rule.
 
 ## 6. The kernel's contract
 
@@ -212,7 +217,7 @@ the grammar of §11:
    type's keys, and is frozen if it crossed the kernel;
 2. every `fold` is total, and no decision in the domain is a boolean;
 3. a domain function is a function of its arguments: it performs no
-   effect and terminates;
+   effect and terminates, and is reached from the shell;
 4. an attempt's chain spends every receipt it is issued exactly once,
    after it is issued; a receipt is read at most once at runtime;
 5. 1–4 are preserved by execution.
@@ -239,10 +244,10 @@ Open, and said so here and in `GUARANTEES.md`:
 - two receipts of one name outstanding at once are not counted (§4);
 - a receipt carried into another attempt's chain is refused at runtime,
   not statically (§4);
-- a domain that is never driven: the acceptor says a module is a correct
-  domain module, not that anything reaches it. An unreachable-export
-  check (`knip`, `ts-prune`) and a test per entry point are the holds
-  for that, and they are the host's.
+- a shell that is never called: the reach rule (§5) says every domain
+  binding is reached from `effects/` or `boundary/`; whether the host's
+  program calls the shell is outside the tree, and a test per entry point
+  is the hold for that.
 
 ## 9. Containers, planned
 
