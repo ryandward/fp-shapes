@@ -242,3 +242,38 @@ recursive structure with checked constructors and folds, and until it
 does the encoding is by hand. They come after the command algebra, since
 their folds are the domain's and their constructors the kernel's, and
 both are checked under the same judgment.
+
+## 9. The trusted base, and where rigor goes
+
+Purity, totality and linear use are properties of the program that calls
+the kernel, not of the kernel: they are established by accepting or
+refusing programs, and a kernel is a guard only on what crosses its API. A
+kernel compiled from a language with a verified semantics would prove the
+freeze, the brand check and the fold correct, which the tests already
+hold cheaply, and would see nothing of a `fetch` in the domain or a receipt
+used on two paths. Nor is anything in the same process un-bypassable: an
+in-process guard is bypassed by not calling it. The guards that cannot be
+routed around are the build, which refuses a program before it exists,
+and a separate process that holds the state and refuses a bad transition.
+
+The trusted base is therefore: TypeScript's type checker on the subset the
+tiers leave (no `any`, no assertion, no spread, no bivariant method
+signature, no directive outside a typetest); the kernel in §5, as tested;
+zod's descriptive forms, as tested in `GUARANTEES.md`; the runtime. No
+language reaches running JavaScript with a verified semantics intact, so
+this base does not shrink by changing the kernel's language.
+
+Rigor goes into the checker's core: the judgment of this document as a
+small calculus (records, variants, `fold`, seal and spend, commands and
+the interpreter) in a proof assistant, with preservation proved there
+(exactness through every step, no effects in domain terms, Δ′ = ∅ at
+every terminal). The checker over TypeScript syntax is then an
+implementation of a proven calculus, and the elaboration from syntax into
+the calculus is the one unverified piece, kept small enough to review.
+That is what makes §6 a theorem. Should the properties be required of a
+language rather than a checker, the domain can be written in one that has
+them and compiles to JavaScript (totality and linear use in Idris 2,
+effect types in Koka), at the cost of a second toolchain, a boundary at
+the foreign-function interface where values are parsed again, and no
+change to the island risk, since the host can still fail to call the
+core. That is an option held, not a step planned.
