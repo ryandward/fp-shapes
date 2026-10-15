@@ -20,7 +20,9 @@ export const mutations = [
     edit('src/variant.ts', 'reduce(into, empty)', 'reduce(into, empty as Partition<M>)'),
   ],
   ['let cases share fields', edit('src/variant.ts', '& M[P] & OnlyOwn<M, P>', '& M[P]')],
-  ['let Total accept a recursive type', edit('src/total.ts', '  true extends Unbounded<T> ? Recursive<T>\n  : HasHoles<T> extends false ? true', '  HasHoles<T> extends false ? true')],
+  ['let Total accept a recursive type', edit('src/total.ts', "  : Among<T, Seen> extends true ? 'recursive'\n", '')],
+  ['let a fact nest past four containers', edit('src/total.ts', 'type Depth = readonly [0, 0, 0, 0];', 'type Depth = readonly [0, 0, 0, 0, 0, 0, 0, 0];')],
+  ['report depth as recursion', edit('src/total.ts', "  : Seen['length'] extends Depth['length'] ? 'deep'\n", "  : Seen['length'] extends Depth['length'] ? 'recursive'\n")],
   ['let a fold omit a case', edit('src/variant.ts', 'readonly [K in keyof M]: (v: Variant<M, K>) => R;', 'readonly [K in keyof M]?: (v: Variant<M, K>) => R;')],
   [
     'let occupancy accept undefined',

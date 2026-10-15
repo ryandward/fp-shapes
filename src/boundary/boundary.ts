@@ -10,7 +10,7 @@
 // by reference.
 
 import type { z } from 'zod';
-import type { Immutable, Total } from '../total.js';
+import type { Deep, Immutable, Recursive, Total } from '../total.js';
 import type { NonEmpty, Variant } from '../variant.js';
 
 export type Issue = {
@@ -35,6 +35,10 @@ export type TotalSchema<S extends z.ZodType> =
     Immutable<z.output<S>> extends true ?
       unknown
     : Needs<'a readonly output: add .readonly() to the schema'>
+  : Total<z.output<S>> extends Recursive<z.output<S>> ?
+    Needs<'a finite output: a fact that contains its own kind is a structure of facts; parse the node'>
+  : Total<z.output<S>> extends Deep<z.output<S>> ?
+    Needs<'a shallow output: a fact nests through at most four containers; parse the rest as facts of their own'>
   : Needs<'a total output: decide each absence with .default() or .nullable()'>;
 
 const toIssue = (issue: z.ZodError['issues'][number]): Issue => ({

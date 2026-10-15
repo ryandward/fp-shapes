@@ -118,8 +118,8 @@ file outside the copied directories names a file the scratch tree lacks).
 | `Occupancy<T>` + `occupancy` | `src/boundary/evidence.ts` | the one look at `.length`; elements are defined values, by the signature | `if (xs.length === 0)` downstream |
 | `Sealed<Tag, T>` + `Sealed.open` | `src/sealed.ts` | who sealed it; the only read re-checks the brand at runtime; the payload is frozen at seal time, all the way down | symbol-branded objects |
 | `Decide<F, A, M>` | `src/sealed.ts` | an owner's decision: facts in, sealed verdict out | decision functions returning plain objects |
-| `Total<T>` | `src/total.ts` | completeness: no `?:`, `undefined`, `unknown`, `any`, `never`, function, index signature, `Date`, or open object (`{}`, `object`); exclusion keys (`k?: never`) are not holes; a type that contains its own kind answers `Recursive<T>`, naming the property | trusting `z.output` to be complete |
-| `Immutable<T>` | `src/total.ts` | every property readonly, every array a `ReadonlyArray`, all the way down; recursion answers `Recursive<T>` | mutable schema outputs |
+| `Total<T>` | `src/total.ts` | completeness: no `?:`, `undefined`, `unknown`, `any`, `never`, function, index signature, `Date`, or open object (`{}`, `object`); exclusion keys (`k?: never`) are not holes; a type that contains its own kind answers `Recursive<T>` and one that nests past four containers answers `Deep<T>`, each naming the property | trusting `z.output` to be complete |
+| `Immutable<T>` | `src/total.ts` | every property readonly, every array a `ReadonlyArray`, all the way down; recursion answers `Recursive<T>`, depth `Deep<T>` | mutable schema outputs |
 | `Exact<A, B>` | `src/total.ts` | correspondence: both total, same keys, mutually assignable | a key-set comparison at one level |
 | `Boundary<F>`, `Parse<F>`, `boundary`, `TotalSchema` | `src/boundary/boundary.ts` | the only shape that accepts `unknown`; a boundary schema has a total, readonly output, checked at the definition | ad-hoc parsing; `JSON.parse as T`; per-schema assertions |
 | `Outcome<T>`, `Tried<T>`, `attempt` | `src/effects/attempt.ts` | the one `try`; a thrown value becomes a case at the effect boundary. `attempt` is imported from this file by effects modules; the index carries the types | `try` in the domain; `void` effects |
@@ -205,7 +205,7 @@ subject to a rule.
 `noUncheckedIndexedAccess`, `noUnusedLocals`) over the library, the examples
 and the tests; lint; 105 rule fixtures (84 for the domain tier, 11 for the
 boundary tier, 8 for the effects tier, 2 for the ETL example); no `.d.ts`
-under `src`; 21 mutations (12 against the library's gates, 9 against the
+under `src`; 23 mutations (14 against the library's gates, 9 against the
 examples'); 46 runtime tests.
 
 ## Examples
@@ -278,8 +278,15 @@ says; the ones after them are the ones that make it stop.
   the queue, not a case of the failure it counted; a "last cause" that could
   itself be an exhaustion is a doll that nests forever. Genuinely recursive
   data (a tree, a document) is a structure of facts: assert the node type,
-  and build the structure from asserted nodes. The bound is sixteen levels,
-  deeper than any fact; a gate that reaches it has found recursion, not depth.
+  and build the structure from asserted nodes.
+- `Total` or `Immutable` answers `Deep<T>`, naming a property. The type
+  nests through more than four containers on one path: a record inside a
+  collection element inside a sub-record inside a record is the most a fact
+  carries, and the fifth level is another entity's structure embedded where
+  its identifier belongs, or a decision folded into the data it was made
+  about. Give the inner shape its own name and its own gate, and hold a
+  reference or the decided case here. The number is not a compiler limit;
+  it is the model's.
 - `Total` answers `false`. Some key is optional, undefined, unknown, open, or
   a function. Decide the absence at the boundary (`.default()`,
   `.nullable()`); replace the open record with named keys; move the function

@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.8
+
+A fact is shallow.
+
+- `Total` and `Immutable` refuse a type that nests through more than four
+  containers (objects and arrays, along one path from the root to a leaf)
+  with `Deep<T>`, naming the property the depth runs through. The previous
+  bound of sixteen was set for the compiler's instantiation limit and
+  admitted models no fact should have; four admits a record, its
+  sub-records, a collection and the collection's element, which is the
+  deepest shape in either example, and refuses one entity's structure
+  embedded in another's.
+- Recursion is detected as such: the walk answers `Recursive<T>` when a
+  container is its own ancestor and `Deep<T>` when the bound is reached
+  first, so the two refusals no longer share a message.
+- `boundary` reports a recursive or deep schema output as `Needs<'a finite
+  output: …'>` or `Needs<'a shallow output: …'>` rather than as an absence
+  to decide.
+- Gates for the bound (four passes, five is `Deep`, width is not depth, a
+  five-deep schema is refused) and three mutations (drop the ancestor check,
+  widen the bound, report depth as recursion).
+
 ## 0.4.7
 
 The domain performs no effect, by lint rather than by layout.

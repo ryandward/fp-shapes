@@ -16,7 +16,7 @@ import { boundary } from './boundary/boundary.js';
 import { occupancy } from './boundary/evidence.js';
 import { Sealed } from './sealed.js';
 import type { Assert, Equal, Exact, Immutable, Total } from './total.js';
-import type { Recursive } from './total.js';
+import type { Deep, Recursive } from './total.js';
 import { fold, partition, type Classify, type Variant } from './variant.js';
 
 // --- provenance: a Sealed value comes from its authority and is read through it
@@ -71,18 +71,28 @@ export const sparse = boundary(z.object({ a: z.string().optional() }).readonly()
 // @ts-expect-error a boundary schema declares .readonly()
 export const mutable = boundary(z.object({ a: z.string() }), (x) => x);
 
+// @ts-expect-error a boundary schema's output nests through at most four containers
+export const nested = boundary(z.object({ a: z.object({ b: z.object({ c: z.array(z.object({ d: z.string() }).readonly()).readonly() }).readonly() }).readonly() }).readonly(), (x) => x);
+
 // --- a fact is finite ---------------------------------------------------------
 
 type Cause = { died: { readonly diagnostic: string }; exhausted: { readonly last: Variant<Cause> } };
 type Tree = { readonly v: number; readonly kids: readonly Tree[] };
-type Deep = { readonly a: { readonly b: { readonly c: { readonly d: { readonly e: { readonly f: { readonly g: { readonly h: string } } } } } } } };
+type Four = { readonly a: { readonly c: readonly { readonly d: string }[] } }; // a record, a sub-record, a collection, its element
+type Five = { readonly a: { readonly b: { readonly c: readonly { readonly d: string }[] } } };
+type Wide = { readonly a: { readonly x: number }; readonly b: { readonly y: { readonly z: number } } };
 
 export type _r1 = Assert<Equal<Total<Variant<Cause>>, Recursive<Variant<Cause>>>>; // names 'last'
 export type _r2 = Assert<Equal<Total<Tree>, Recursive<Tree>>>; // names 'kids'
 export type _r3 = Assert<Equal<Immutable<Variant<Cause>>, Recursive<Variant<Cause>>>>;
 export type _r4 = Assert<Equal<Recursive<Variant<Cause>>['a fact is finite; this one contains its own kind through'], 'last'>>;
-export type _r5 = Assert<Total<Deep>>; // depth alone is not recursion
-export type _r6 = Assert<Immutable<Deep>>;
+export type _r5 = Assert<Total<Four>>; // four containers on a path is a fact
+export type _r6 = Assert<Immutable<Four>>;
+export type _r7 = Assert<Equal<Total<Five>, Deep<Five>>>; // a fifth is not; this is depth, not recursion
+export type _r8 = Assert<Equal<Immutable<Five>, Deep<Five>>>;
+export type _r9 = Assert<Equal<Deep<Five>['a fact is shallow; this one nests past four containers through'], 'a'>>;
+export type _r10 = Assert<Equal<Deep<Wide>['a fact is shallow; this one nests past four containers through'], never>>; // width is not depth
+export type _r11 = Assert<Total<Wide>>;
 
 // --- the assertion utilities are gates too ------------------------------------
 
