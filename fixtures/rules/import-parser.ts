@@ -1,2 +1,2 @@
 // expect: take the parsed fact as a parameter
-import { parseRawRow } from "../../examples/etl/boundary/rows"; export const p = parseRawRow;
+import { parseOrder } from './boundary/order.js'; export const p = parseOrder;

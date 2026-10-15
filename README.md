@@ -1,35 +1,95 @@
 # fp-shapes
 
-Shapes for an enforcement-grade functional domain: decisions are data, made
-once at the boundary; every consumer folds; only an owner can pronounce a
-verdict; possession of a value proves how it was obtained; and every gate
-has a test that fails the build when the gate opens. The domain core is
-written in Koka, where exhaustive matches, effect rows and nominal types
-are the compiler's to refuse; the shell around it (the boundary, the
-effects, the interpreter) is TypeScript held by the lint tiers, the kernel
-and the gates, and the FFI between them is generated from the core.
+Shapes for an enforcement-grade functional domain in TypeScript: decisions
+are data, made once at the boundary; every consumer folds; effects are
+commands the domain returns and an interpreter performs; a receipt issued
+is spent exactly once, and the type of every step says so; only an owner
+can pronounce a verdict; possession of a value proves how it was obtained;
+and every gate has a test that fails the build when the gate opens.
+
+Three layers hold it. The kernel (`src/`) gives the shapes: `Variant` and
+`fold`, `Sealed`, `Total` and `Immutable`, `boundary`, `commands` and
+`drive`. The lint tiers (`eslint.config.js`) refuse, by path segment, the
+syntax the type system leaves available. The acceptor (`scripts/accept.mjs`)
+walks every domain module with tsc's checker in hand and admits a grammar:
+exact at every declared type, calling nothing but the kernel, itself and a
+fact's methods, deciding nothing by a boolean, reaching nothing twice. What
+it does not name, it refuses. Each layer is proved by its own artifacts:
+gates with a mutation per gate, lint rules with a fixture per rule,
+acceptor rules with a fixture per rule, runtime laws with a test each.
 
 The library is `src/`. Vendor that directory with `eslint.config.js`,
-`scripts/`, `fixtures/` and `tsconfig.json`, import from `src/index.ts`, and
-lay your code out by the same path segments (`boundary/`, `effects/`) so
-the lint tiers apply to it unchanged. `eslint.examples.js` and everything
-under `examples/` belong to this repository, not to the vendor set. `examples/` shows the shapes applied twice and is not
-part of the library.
+`scripts/`, `fixtures/` and `tsconfig.json`, import from `src/index.ts`,
+and lay your code out by the same path segments (`boundary/`, `effects/`)
+so the tiers and the acceptor apply to it unchanged. `examples/` belongs
+to this repository, not to the vendor set.
 
 ## Running
 
 ```
 npm ci
-npm run koka:install # Koka 3.2.9 under .koka-prefix/, once
-npm run check        # koka build, tsc, lint, rule fixtures, rule coverage, no .d.ts, mutations, koka gate and mutations, tests
+npm run check   # tsc, lint, rule fixtures, rule coverage, the acceptor and its fixtures, no .d.ts, mutations, tests
 ```
 
-Node 22, TypeScript 5.9, zod 4, ESLint 9, from the lockfile; Koka 3.2.9,
-pinned in each core's `koka.json` and installed by the official release
-script into `.koka-prefix/` (or set `KOKA` to a compiler of that version).
-The build refuses any other version. The tests run
+Node 22, TypeScript 5.9, zod 4, ESLint 9, from the lockfile. The tests run
 under `tsx`, which opens a Unix socket under `TMPDIR`; on a deep temp path
 that exceeds the socket path limit, run with a short one (`TMPDIR=/tmp`).
+
+## The domain, in TypeScript
+
+A plane declares its operations: per operation, the arguments the shell
+needs, the closed outcome the shell answers with, which outcome cases
+issue a receipt and which receipt the operation spends. The kernel derives
+the step type from the declaration.
+
+```ts
+export type Fulfilment = {
+  readonly reserve: { readonly args: { readonly id: string; readonly lines: ReadonlyArray<Line> }; readonly outcome: ReserveOutcome; readonly issues: { readonly reserved: 'hold' }; readonly spends: never };
+  readonly charge:  { readonly args: { readonly id: string; readonly amount: number }; readonly outcome: ChargeOutcome; readonly issues: {}; readonly spends: never };
+  readonly ship:    { readonly args: { readonly hold: Hold; readonly to: Address }; readonly outcome: ShipOutcome; readonly issues: {}; readonly spends: 'hold' };
+  readonly release: { readonly args: { readonly hold: Hold }; readonly outcome: ReleaseOutcome; readonly issues: {}; readonly spends: 'hold' };
+};
+export const { done, suspend } = commands<Fulfilment, Variant<OrderStatus>>();
+```
+
+A domain function returns a step: `done` with a status, or `suspend`ed on
+one operation with an arm per outcome case. The third type parameter of
+`Step` is what the attempt owes — the receipts issued to it and not yet
+spent — and the kernel computes it arm by arm.
+
+```ts
+type Next<O> = Step<Fulfilment, Variant<OrderStatus>, O>;
+
+const letGo = (hold: Hold, after: Variant<OrderStatus>): Next<{ hold: true }> =>
+  suspend('release', { hold }, {
+    released: () => done(after),
+    release_died: ({ diagnostic }) => done({ kind: 'worker_died', diagnostic }),
+  });
+
+export const fulfil = (o: Order): Next<{}> =>
+  suspend('reserve', { id: o.id, lines: o.lines }, {
+    reserved: ({ hold, allocations }) => settleUp(o, hold, allocations),
+    short: ({ missing }) => done({ kind: 'backordered', missing }),
+    reserve_died: ({ diagnostic }) => done({ kind: 'worker_died', diagnostic }),
+  });
+```
+
+An arm that received a hold and returns `done` does not compile; an arm
+that releases a hold already shipped does not compile; a ship before a
+reservation does not compile; a hold forgotten across a charge does not
+compile. The interpreter in `effects/` performs each operation through
+an `Effects` record, resumes the chain with the outcome, and keeps the
+ledger:
+
+```ts
+const run = await drive(adapt(foreign), fulfil(order));
+// { kind: 'finished', status, ledger } | { kind: 'halted', error, ledger }
+```
+
+The hold is a `Sealed<_, _, 'spend'>` minted by the adapter that reserves
+and spent by the adapter that ships or releases; the domain carries it and
+cannot mint, read or spend it. `examples/fulfil/` is the whole of this,
+with its boundary, its adapters, its tests, its gates and its mutations.
 
 ## Vendoring
 
@@ -102,6 +162,15 @@ when a rule no longer fires there, which is the check that the composition
 and the host's ESLint version kept every rule; `fixtures/rules/boundary`
 and `fixtures/rules/effects` do the same for those tiers.
 
+The acceptor takes the kernel's location and the domain's: `node
+fp-shapes/scripts/accept.mjs --kernel fp-shapes/src --tsconfig
+tsconfig.strict.json lib` walks every domain module under `lib/`, and
+`node fp-shapes/scripts/accept.mjs --kernel fp-shapes/src --fixtures
+fp-shapes/fixtures/accept` proves its rules still fire under the host's
+TypeScript. A module is domain unless a segment of its path says
+otherwise, so a host that keeps its own code under the same segments is
+walked in full.
+
 The mutation runner takes the library's own list from wherever the library
 was vendored: `node fp-shapes/scripts/mutations.mjs
 fp-shapes/src/gates.mutations.mjs --map src=fp-shapes/src --tsconfig
@@ -110,88 +179,18 @@ prefix in every path the list names; `--tsconfig` names a config that
 carries the flags. The scratch tree holds the directories a list's `copy`
 names, that tsconfig, and a link to `node_modules`, nothing else: an
 application's list names every directory its staged program reads,
-declarations included, and the tsconfig stands alone (one that `extends` a
-file outside the copied directories names a file the scratch tree lacks).
+declarations included, and the tsconfig stands alone.
 
 ## The contract, and what holds it
 
 `SPEC.md` states what "accepted by fp-shapes" means as the rules a checker
 enforces (exact facts preserved through every step, `fold` as the one
-eliminator, domain functions with no effects, linear evidence consumed
-exactly once) and the contracts the kernel keeps, and says which rules
-hold today and how. Since 0.6 the checker of the core is the Koka compiler
-and a token gate; the one rule not yet static is linearity, which the
-shell holds at runtime (§4). `GUARANTEES.md` is the reviewer's map: each
-anti-pattern, the mechanism that refuses it, the gate, mutation, fixture
-or test that shows the mechanism works, where zod sits in the trusted
-base, and what is still open.
-
-## The core, in Koka
-
-A core is a directory of `.kk` modules with a `koka.json` beside them
-(`examples/ingest/core/` is the one here). Facts are structs, outcomes are
-closed sums, evidence is an `abstract struct` the core can neither build,
-match nor read, and the plane's command algebra is one `effect` with a
-`ctl` operation per command. An attempt is a function whose row is that
-effect and nothing else:
-
-```koka
-pub effect shell
-  ctl claim(file-id: string): claim-outcome
-  ctl fence(c: claim, bytes: int): fence-outcome
-  ctl finalize(f: fenced-receipt): finalize-outcome
-
-pub fun ingest(file-id: string): shell ingest-status
-  match claim(file-id)
-    Claimed(c) -> transfer-stage(c, ...)
-    ClaimDied(d) -> WorkerDied(d)
-```
-
-A match that misses a case, a print, a recursive call, a thrown value, a
-field a type lacks, a receipt built or read inside the core: each is a
-compile error, and `examples/ingest/core/mutations.mjs` holds one of each
-for `check:koka` to run. What the compiler leaves open under a `total`
-row (`extern`, `unsafe-*`, `pretend-*`, `trace`, `var`, `ref`, handlers,
-the unsafe and os modules) the gate in `scripts/koka-gate.mjs` refuses by
-token over the core's import closure, with a fixture per refusal under
-`fixtures/koka/`.
-
-`scripts/koka-build.mjs` runs the gate, compiles the core (JavaScript
-backend), and generates the rest from the compiler's interface files:
-
-- `.build/<core>_bridge.kk`: a `step` type with one suspension per
-  operation, each carrying the operation's arguments and a resumption
-  that takes that operation's outcome and no other, and `start`, which
-  runs the attempt under the handler that suspends;
-- `.build/*.d.ts`: the compiled modules' surface, every type opaque, so a
-  literal is never a value of a core type;
-- `boundary/<core>.ffi.ts`: a schema per type that crosses in, parsed
-  every time it does; conversions in (parse, construct, freeze) and out
-  (fold into a frozen Variant); receipts minted into a registry and read
-  back by identity, so a value the shell did not mint halts the attempt;
-  resumptions and receipts spent once;
-- `effects/<core>.drive.ts`: the interpreter, `drive(fx)(args)`: it folds
-  the step, performs each command through the `Effects` record, resumes
-  the core with the outcome, and returns a run: `finished` with the
-  status, the ledger and the ownership audit, or `halted` with the error,
-  the ledger so far and the audit. The audit names every receipt issued
-  to the attempt and not spent, so a core that drops one is caught on its
-  first run; the ledger is kept in the kernel's append-only builder, one
-  write per command.
-
-Two kinds of evidence cross: a *claim* is a capability held for the
-whole attempt, handed to any number of operations and checked for
-provenance; a *receipt* (a type named `…-receipt`) is spent by the one
-operation that takes it. The compiled modules under `.build/` hold raw
-constructors and resumptions, and the generated FFI is the only module
-allowed to import them by value: every tier refuses the import, with a
-type-only import allowed for gates.
-
-The generated TypeScript is committed and linted under the boundary and
-effects tiers like anything else; `koka:check` fails when it differs
-from what the core generates. The FFI carries `string`, `int` (a safe
-integer), `bool`, `vector<T>` and the core's own types, and refuses the
-rest by name with what to use instead.
+eliminator, domain functions with no effects and no recursion, receipts
+spent exactly once in the type of the chain) and the contracts the kernel
+keeps, and says what holds and what is open. `GUARANTEES.md` is the
+map for review: each anti-pattern, the mechanism that refuses it, the
+gate, mutation, fixture or test that shows the mechanism works, where zod
+sits in the trusted base, and what is still open.
 
 ## Adopting in an existing codebase
 
@@ -200,8 +199,8 @@ a codebase that keeps its decisions where they were and reaches them through
 adapters; that is an island, and it adds code. The order that has worked:
 
 1. Start at the module that owns the state machine, the writes that move a
-   lifecycle. Its transitions are a map, its states are sealed under its
-   authority, and every write takes the sealed state as its fence.
+   lifecycle. Its operations are a plane, its transitions a chain of
+   steps, its receipts named in the declaration.
 2. Parse every row that module reads with `boundary()`, ORM entities
    included. An entity type is a declaration, not evidence; what the
    database returns is `unknown`.
@@ -216,21 +215,21 @@ A module of the repository is not a foreign surface. Foreign is
 `node_modules`, the database driver, the queue: code described as it is
 because it cannot change. A module of your own that decides is rewritten in
 the shapes or deleted; wrapped, it keeps its decisions. A seam is done when
-the touched modules hold no `if`, `switch`, `throw`, null check, `as` or `!`
-outside `boundary/` and `effects/`, their line count went down, and the
+the touched modules pass the acceptor, their line count went down, and the
 replaced symbol has no references left.
 
 None of that holds by instruction; an instruction is satisfied by its
 cheapest reading. It holds when the build is red until it is true. Three
 settings make it so, with the tools already in the tree:
 
-- The tiers cover the whole tree, not the new directories, and the existing
-  violations are recorded once: `eslint --suppress-all` writes
-  `eslint-suppressions.json`, which is committed. From then on a new
-  violation anywhere fails the lint, and a fixed violation whose entry was
-  not pruned (`eslint --prune-suppressions`) fails it too, so the file can
-  only shrink and every shrink is in the diff. A seam is done when its
-  files have no entries.
+- The tiers and the acceptor cover the whole tree, not the new
+  directories, and the existing violations are recorded once: `eslint
+  --suppress-all` writes `eslint-suppressions.json`, which is committed.
+  From then on a new violation anywhere fails the lint, and a fixed
+  violation whose entry was not pruned (`eslint --prune-suppressions`)
+  fails it too, so the file can only shrink and every shrink is in the
+  diff. The acceptor has no suppressions: it is run over the directories
+  that are done, and a directory is done when it passes.
 - The modules a seam replaces go into `no-restricted-imports` when the seam
   starts, with the message naming the replacement. Every importer is red
   until it moves; the module is deleted when the rule has nothing left to
@@ -238,6 +237,12 @@ settings make it so, with the tools already in the tree:
 - The seam's gates are written first and red: the `Assert` lines on its
   facts, the `KindsOf` pin, the mutation list. The task is to make them
   green, and a red gate cannot be satisfied by a wrapper.
+
+What none of this holds is reachability: the acceptor says a module is a
+correct domain module, not that anything calls it. An unreachable-export
+check (`knip`, `ts-prune`) in the same build, and a test per entry point
+that drives the chain through a fake of the foreign modules, are the holds
+for that.
 
 ## The library
 
@@ -250,11 +255,14 @@ settings make it so, with the tools already in the tree:
 | `NonEmpty<T>` + `mapNonEmpty` | `src/variant.ts` | evidence as a value | `array[0]` + `if (!head)` |
 | `Partition<M>` + `partition` | `src/variant.ts` | one classification, every case kept, every bucket named; linear in the input | `filter`, `find`, `some`, `every` |
 | `Occupancy<T>` + `occupancy` | `src/boundary/evidence.ts` | the one look at `.length`; elements are defined values, by the signature | `if (xs.length === 0)` downstream |
+| `Operations`, `Step<Ops, S, O>`, `commands` | `src/command.ts` | a plane's declaration; a step that owes what the chain has been issued and not spent, invariant in it; `done` and `suspend` | effect handlers passed as functions; receipts tracked by discipline |
+| `Effects<Ops>`, `Entry<Ops>`, `Run<Ops, S>`, `drive` | `src/command.ts` | the interpreter: one performer per operation, the ledger, a run finished or halted | an orchestrator that performs and decides |
+| `Ledger<T>` + `ledger` | `src/ledger.ts` | the one append-only builder; read as a frozen copy | a growing array copied per hop |
 | `Sealed<Tag, T, Use>` + `Sealed.open` / `Sealed.spend` | `src/sealed.ts` | who sealed it, and whether it is held (`'open'`: read any number of times) or spent (`'spend'`: read once, by the reader that consumes it); the payload type is exactly what the owner sealed (invariant), the reads re-check the brand at runtime, `spend` halts on a second read, and the payload is frozen at seal time, all the way down | symbol-branded objects; a receipt or token used twice; a wider value sealed as a narrower type |
 | `Decide<F, A, M>` | `src/sealed.ts` | an owner's decision: facts in, sealed verdict out | decision functions returning plain objects |
 | `compare` + `Comparison` | `src/boundary/compare.ts` | the one structural comparison: two facts are the same when every leaf is, by `Object.is`; a difference carries the path to the first leaf that differs; sealed values compare by identity | `===` on records, which is identity; `JSON.stringify(a) === JSON.stringify(b)` |
-| `Total<T>` | `src/total.ts` | completeness: no `?:`, `undefined`, `unknown`, `any`, `never`, function, index signature, `Date`, or open object (`{}`, `object`); exclusion keys (`k?: never`) are not holes; a type that contains its own kind answers `Recursive<T>` and one that nests past four containers answers `Deep<T>`, each naming the property; a sealed value is read through to its payload, so sealing a shape does not hide it | trusting `z.output` to be complete |
-| `Immutable<T>` | `src/total.ts` | every property readonly, every array a `ReadonlyArray`, all the way down; recursion answers `Recursive<T>`, depth `Deep<T>` | mutable schema outputs |
+| `Total<T>` | `src/total.ts` | completeness: no `?:`, `undefined`, `unknown`, `any`, `never`, function, index signature, `Date`, or open object (`{}`, `object`); exclusion keys (`k?: never`) are not holes; a type that contains its own kind answers `Recursive<T>`, naming the property; a sealed value is read through to its payload, so sealing a shape does not hide it | trusting `z.output` to be complete |
+| `Immutable<T>` | `src/total.ts` | every property readonly, every array a `ReadonlyArray`, all the way down; recursion answers `Recursive<T>` | mutable schema outputs |
 | `Exact<A, B>` | `src/total.ts` | correspondence: both total, same keys, mutually assignable | a key-set comparison at one level |
 | `Boundary<F>`, `Parse<F>`, `boundary`, `sealing`, `TotalSchema`, `Fact` | `src/boundary/boundary.ts` | the only shape that accepts `unknown`; a boundary's fact is the schema's output and nothing else, checked total and readonly at the definition and frozen by the kernel at runtime; `sealing` composes an owner's seal whose payload is exactly a fact | ad-hoc parsing; `JSON.parse as T`; per-schema assertions; `z.custom` |
 | `Outcome<T>`, `Tried<T>`, `attempt` | `src/effects/attempt.ts` | the one `try`; a thrown value becomes a case at the effect boundary. `attempt` is imported from this file by effects modules; the index carries the types | `try` in the domain; `void` effects |
@@ -292,169 +300,125 @@ excess keys where a binding might carry them.
 
 ## Enforcement
 
-Four kinds of check, because the guarantees are of different kinds.
+Five kinds of check, because the guarantees are of different kinds.
 
 - **Compile** (`src/gates.typetest.ts`): `@ts-expect-error` lines are the
   inverse of a test. Every binding is exported, so the only error a line can
   produce is the one its guarantee describes; each line can fail in exactly
-  one way; the assertion utilities are gated like everything else.
+  one way; the assertion utilities are gated like everything else. The
+  linearity gates hold a chain that drops, double-spends, spends early,
+  forgets across an operation, or relabels what it owes.
 - **Lint** (`eslint.config.js`, `fixtures/rules/**/*.ts`): the rules the
   type system describes but the language keeps available, one fixture per
   rule, each declaring the message lint gives for it, in a directory per
   tier so each tier's permissions are verified as well as its refusals.
   `scripts/rule-coverage.mjs` then tags every rule's message and lints the
   fixtures once: a rule is proved by a fixture that no other rule
-  satisfies, and a rule no fixture needs fails the check, so a rule cannot
-  be added without the fixture that proves it fires. Every message states what
-  the code here is or what the construct needs ("a branch is a Variant:
-  classify at the boundary, fold here"; "copy by naming every key; a Sealed
-  value comes only from its owner"), and the type-level check on `boundary`
-  reports as `Needs<"a total output: …">`.
+  satisfies, and a rule no fixture needs fails the check. Every message
+  states what the code here is or what the construct needs ("a branch is a
+  Variant: classify at the boundary, fold here"), and the type-level check
+  on `boundary` reports as `Needs<"a total output: …">`.
+- **The acceptor** (`scripts/accept.mjs`, `fixtures/accept/*.ts`): lint
+  reads syntax; the acceptor reads types. It builds the program with
+  `tsc`'s API and walks every domain module admitting a grammar (§11 of
+  `SPEC.md`); a form it does not name is refused. Six rules, each named in
+  its refusal: *grammar*; *exactness*, where a value meets a declared
+  type its keys are exactly the declared keys, case by case through a
+  union and element by element through an array, which tsc checks for
+  fresh literals only; *purity*, every callee is the kernel's, the
+  domain's or a fact's method, never a parameter, a function read from a
+  record, a global, a package, a boundary or effects module, a `Promise`,
+  `void` or `never`, and every parameter is a fact all the way down;
+  *decision*, no call returns a boolean; *termination*, no binding reaches
+  itself; *closed*, nothing `any`, `unknown`, generic or under a
+  directive. Every fixture is a program tsc compiles and the acceptor
+  refuses with the expected sentence (or accepts, for `clean`), and the
+  run fails unless every rule is the only rule refusing some fixture.
 - **Runtime** (`test/*.test.ts`): what the compiler leaves to the running
   program. `Object.assign({}, sealed)` and `structuredClone(sealed)` compile
   as sealed; `Sealed.open` and `Sealed.spend` reject them, and `spend`
   refuses the second read of evidence sealed for one, whatever route the
   value took to arrive twice (the spent set is the library's one piece of
-  runtime state, a `WeakSet` written once per value). Two patterns the examples use: a
-  record keyed by a union's kinds holding one sample of every case, which
-  fails to compile until a new case has a sample, so a fold can be checked
-  over all of them; and a fake of the foreign modules that models the one
-  piece of state the guarantees turn on (a claim mints a fresh token and
-  takes the row; a fenced write lands only under the holder's token), so an
-  end-to-end path runs without a database and a replacement taking the
-  claim can be staged.
+  runtime state, a `WeakSet` written once per value). The interpreter's
+  run, ledger and halt are tested the same way. Two patterns the example
+  uses: a record keyed by a union's kinds holding one sample of every
+  case, which fails to compile until a new case has a sample, so a fold
+  can be checked over all of them; and a fake of the foreign modules that
+  models the one piece of state the guarantees turn on, so an end-to-end
+  path runs without a database.
 - **Mutation** (`scripts/mutations.mjs`, lists in `src/gates.mutations.mjs`
-  and beside each example's gates): each loosening is applied alone to a
-  copy of the tree and required to fail `tsc` at a line in the gates file
-  that guards it, so a gate that holds while its guarantee is gone shows up.
-  An application keeps its own list beside its own gates and passes it to
-  the same runner.
+  and beside the example's gates): each loosening is applied alone to a
+  copy of the tree and required to fail `tsc` at a line in a gates file
+  that guards it, so a gate that holds while its guarantee is gone shows
+  up. An application keeps its own list beside its own gates and passes it
+  to the same runner; the example's list loosens its domain (a hold
+  dropped, released twice, shipped before it was reserved) and names
+  `fulfil.ts` as a file where the error may land.
 
-The tiers, by path segment. The domain is data, folds, and owner-issued
-values, and performs no effect: an effect reaches it as a parameter or as
-the fact it produced. What a domain module imports from an `effects/`
-module is a reader of the evidence that module issues, named `open…` or `spend…`, so
-the reading is pinned to the issuer; the performers are not importable, and
-neither are the effects the language offers without an import (`fetch`,
-`process`, `console`, timers, `Date`, `Math.random`, `crypto`, `JSON.parse`,
-dynamic `import`, the global object). A fact is a closed record, read by
-name, not by `['key']`, and built by naming every key: an object spread or
-rest pattern is refused, since a fresh literal is checked for excess keys
-and a spread member is not, so a spread is how keys a type does not
-declare enter a fact, and how an old shape travels under a new label.
-Array spread stays, since an array has no keys and `[...xs, y]` keeps a
-tuple's type; the mutating array methods (`push`, `sort`, `splice`, …) are
-refused, since a fresh array is typed mutable, and so are `call`, `apply`,
-`bind` and any `prototype`, which reach the same methods with their names
-hidden. A comparison (`===`, `<`, `!`) is a decision and `filter`, `find`,
-`some`, `every` classify by a predicate, so the domain has neither;
-sameness is `compare`, a boundary decision, and a classification is a
-`partition`. `boundary/` decides: conditionals, `unknown`, zod
-and time conversion live there, and it performs no effect either. `effects/`
+The tiers, by path segment. The domain is data, folds, steps and
+owner-issued values, and performs no effect: an effect is an operation
+the domain names in a step, and its outcome arrives as the answer the arm
+folds. Nothing of an `effects/` module is imported by value (a type may
+be), and neither are the effects the language offers without an import
+(`fetch`, `process`, `console`, timers, `Date`, `Math.random`, `crypto`,
+`JSON.parse`, dynamic `import`, the global object). A fact is a closed
+record, read by name, not by `['key']`, and built by naming every key: an
+object spread or rest pattern is refused, since a fresh literal is checked
+for excess keys and a spread member is not. Array spread stays; the
+mutating array methods are refused, and so are `call`, `apply`, `bind`
+and any `prototype`. A comparison (`===`, `<`, `!`) is a decision and
+`filter`, `find`, `some`, `every` classify by a predicate, so the domain
+has neither; sameness is `compare`, and a classification is a
+`partition`. `boundary/` decides: conditionals, `unknown`, zod and time
+conversion live there, and it performs no effect either. `effects/`
 perform: try, throw, branch, read the clock and the environment, and name
 `unknown` for what came back; a foreign surface (`effects/**/foreign.ts`)
 describes other code as it is, predicates and optional methods included.
-`src/sealed.ts` holds the one class, the one brand check, and the one halt;
-`src/total.ts` names the holes it tests for; `src/variant.ts` holds the
-combinators and the one generic record update. Typetests hold the compiler
-directives, each with a description of the gate it pins.
+`src/sealed.ts` holds the one class, the one brand check, and the one
+halt; `src/command.ts` the step type, its two constructors and the
+interpreter; `src/ledger.ts` the one append-only builder; `src/total.ts`
+names the holes it tests for; `src/variant.ts` holds the combinators and
+the one builder. Typetests hold the compiler directives, each with a
+description of the gate it pins.
 
 Not verified here but recommended on top: typescript-eslint
 `recommendedTypeChecked` (the `no-unsafe-*` rules that track `any` out of
-`JSON.parse` and ORM entities), `eslint-plugin-functional`, and
-`eslint-plugin-eslint-comments` so an `eslint-disable` comment is itself
-subject to a rule.
+`JSON.parse` and ORM entities in the shell, where the acceptor does not
+look), `eslint-plugin-functional`, `eslint-plugin-eslint-comments` so an
+`eslint-disable` comment is itself subject to a rule, and `knip` or
+`ts-prune` for exports nothing reaches.
 
-`npm run check` runs all four on TypeScript 5.9.3, zod 4.6, ESLint 9, Node
+`npm run check` runs all five on TypeScript 5.9.3, zod 4.6, ESLint 9, Node
 22: strict `tsc` (plus `exactOptionalPropertyTypes`,
-`noUncheckedIndexedAccess`, `noUnusedLocals`) over the library, the examples
-and the tests; lint; 152 rule fixtures (113 for the domain and primitives
-tiers, 23 for the boundary tier, 14 for the effects and foreign tiers, 2
-for the ETL example), every one of the 97 rules proved by one; no `.d.ts`
-under `src`; 32 mutations (23 against the library's gates, 9 against the
-examples'); 63 runtime tests.
+`noUncheckedIndexedAccess`, `noUnusedLocals`) over the library, the example
+and the tests; lint; 150 rule fixtures (113 for the domain and primitives
+tiers, 23 for the boundary tier, 14 for the effects and foreign tiers),
+every one of the 97 rules proved by one; the acceptor over the example and
+its 74 fixtures, every one of its 6 rules proved; no `.d.ts` under `src`;
+31 mutations (26 against the library's gates, 5 against the example's);
+44 runtime tests.
 
-## Examples
+## The example
 
-Not part of the library; each has its own gates and tests.
+Not part of the library; it has its own gates, mutations and tests.
 
-**`examples/etl/`**: a two-stage pipeline. A sealed fact and a sealed
-decision (`boundary/file-status.ts`, `retry.ts`); extraction that keeps
-every rejection and stages the rest only if there are any
-(`boundary/extract.ts`); stages that carry their batch and advance only in
-the order of a transition table (`pipeline.ts`, `steps/transform.ts`); an
-effect that returns a sealed receipt rather than `void` (`effects/load.ts`);
-a writer that is private and takes nothing but that receipt, for that batch
-(`ledger.ts`).
-
-```
-unknown ──boundary──▶ FileStatus (Sealed fact) ──retryOf──▶ RetryDecision (Sealed verdict) ──openRetry + fold──▶ effect
-unknown[] ──extract(batch)──▶ Staged<'extracted'> ──transform──▶ Staged<'transformed'> ──load──▶ LoadReceipt{batch} ──settle(batch)──▶ Ledger | refused
-```
-
-**`examples/ingest/`**: a queue worker that fetches a file, fences its
-claim, finalizes and settles it, rewritten from code that decided
-everything after erasing its evidence (a failure's type thrown away and
-recovered with `instanceof` and a message match; a finalizer's cause
-travelling through `ok: boolean` and a re-throw; a lost fence as a caught
-class; the row's state as four early returns). The core is Koka; the
-shell is TypeScript.
-
-- `core/ingest.kk` is the domain: every outcome a closed sum, one match
-  per answer, the attempt's row exactly the `shell` effect. `core/evidence.kk`
-  holds the receipts as abstract structs, so `finalize` can only be
-  reached with what `fence` issued and `settle` with what `finalize`
-  issued; the order of the pipeline is in the types, and the core cannot
-  mint, match or read a receipt. `core/mutations.mjs` lists twenty-two
-  loosenings and which check refuses each: the compiler, the gate, the
-  typecheck over the regenerated surface, the lint, or the tests.
-- `boundary/ingest.ffi.ts` and `effects/ingest.drive.ts` are generated
-  from the core; `boundary/target.ts` reads the stored row once into the
-  core's target outcome: gone, settled, abandoned (the dead-man's switch
-  is the parse that establishes a located row failing), foreign plane, or
-  ready.
-- `effects/adapt.ts` turns each foreign call into the outcome the core
-  asked for and mints the receipts as records. The reflection lives here,
-  once per foreign API: a guard class is the `fence_revoked` case, a
-  deadline class is the `deadline` case, the egress proxy's message is
-  read from the fetch error only, a finalizer's `ok: false` carries its
-  cause whole. `effects/foreign.ts` describes the foreign modules as they
-  are; `effects/run.ts` is the entry point: real effects, the core driven
-  through them, one log line from a fold, the ledger returned, the
-  transfer cleared in `finally`.
-- `report.ts` is shell-side domain code under the tiers: two folds over
-  the status the FFI reads out, so a case added in the core fails to
-  compile here until this file says what it means.
-- `drive.test.ts` runs every path with a scripted fake of the effects,
-  reads back the ledger, and holds the audit empty on each; a throwing
-  performer and a refused outcome each halt the run with the ledger so
-  far. `ffi.test.ts` holds the FFI's own guarantees (a value parsed,
-  copied and frozen on the way in; frozen on the way out; a step resumed
-  once; a halt that names the field; the audit per attempt).
-  `adapt.test.ts` hands the adapters a fake of the foreign modules that
-  throws and returns the way the real ones do.
-
-Making the cases explicit surfaced three behaviours of the original worth a
-decision: a failed cause-record threw to the caller although the contract
-said nothing throws; a lost fence at the final `settled` write was reported
-as a dead worker, so the queue retried a row a replacement owned; and the
-egress-refusal match ran on every error message, including a database
-error's. The rewrite returns `worker_died`, `claim_revoked`, and reads the
-match from the fetch error only, and the tests pin each.
-
-**`examples/fulfil/`**: a second core, unrelated to ingest, kept as the
-generator's generality check: an order is a struct holding a vector of
-structs and a nested struct with a vector of strings; a reservation
-answers with a receipt and a vector of allocations, each a struct holding
-a struct and a sum; the status carries vectors back out; the hold is
-spent by `ship` or by `release` on every path. `core/fulfil.kk` is 70
-lines, the shell is the generated FFI and interpreter plus
-`drive.test.ts`, and `core/mutations.mjs` holds six loosenings (a ship
-without a hold and a dropped match arm for the compiler, a status the
-shell has no sample of for the typecheck, a hold kept, released twice
-and copied for the tests). Building it took two generator fixes (an
-arrow inside a kind annotation read as a closing angle; output
-directories not created) and no change to the shell's rules.
+**`examples/fulfil/`**: an order is reserved, charged and shipped, or
+backordered, declined, or died along the way. `plane.ts` declares the
+facts, the outcomes and the four operations (`reserve` issues a hold;
+`ship` and `release` spend it). `fulfil.ts` is the attempt: five
+functions, every arm typed with what it owes, so the hold is spent on
+every path and the compiler says where it is not. `boundary/order.ts`
+parses an order. `effects/foreign.ts` describes the inventory, payment,
+carrier and log as they are; `effects/adapt.ts` turns each foreign call
+into the outcome the plane declares, mints the hold under an authority
+private to that module and spends it; `effects/run.ts` drives the attempt
+and logs the status. `report.ts` folds the status into a line, so a case
+added to the status fails to compile until this file says what it means.
+`fulfil.test.ts` runs every path through a fake of the foreign modules
+and reads the ledger back; `gates.typetest.ts` pins the authority private,
+a forged hold refused, a peeked hold refused, the facts total and
+immutable; `gates.mutations.mjs` loosens the domain three ways and the
+gates two, and each must be refused.
 
 ## When a check fails
 
@@ -470,16 +434,6 @@ says; the ones after them are the ones that make it stop.
   itself be an exhaustion is a doll that nests forever. Genuinely recursive
   data (a tree, a document) is a structure of facts: assert the node type,
   and build the structure from asserted nodes.
-- `Total` or `Immutable` answers `Deep<T>`, naming a property. The type
-  nests through more than four containers on one path: a record inside a
-  collection element inside a sub-record inside a record is the most a fact
-  carries, and the fifth level is another entity's structure embedded where
-  its identifier belongs, or a decision folded into the data it was made
-  about. Give the inner shape its own name and its own gate, and hold a
-  reference or the decided case here. The number is not a compiler limit;
-  it is the model's. Sealing the deep value does not answer it: every
-  assertion reads a sealed value through to its payload, and the envelope
-  is not a container.
 - `Total` answers `false`. Some key is optional, undefined, unknown, open, or
   a function. Decide the absence at the boundary (`.default()`,
   `.nullable()`); replace the open record with named keys; move the function
@@ -487,55 +441,54 @@ says; the ones after them are the ones that make it stop.
 - `boundary` reports `Needs<…>`. Its text is the change to make to the schema.
 - A `fold` reports a missing key. A case was added and this consumer has not
   said what it means. Say it; the handler is the decision.
+- An arm does not compile against `Step<…, { hold: true }>` (or `{}`).
+  The arm owes a receipt and ends, spends one that was spent, or spends
+  one not yet issued. The chain is wrong, not the type: spend the receipt
+  on this path, or move the spend to the operation that should take it.
 - A gate's `@ts-expect-error` is reported unused. The guarantee the line
   describes has weakened somewhere else; the fix is there, not on the line.
+- The acceptor refuses with *exactness*: a value carries a key its type
+  lacks (or lacks one). Build the fact with exactly its keys where it is
+  made; the wider value is a different fact. With *purity*: the domain is
+  calling something that is not the kernel, itself or a fact's method.
+  Make it an operation of the plane and fold its outcome. With
+  *decision*: a call returned a boolean. Classify at the boundary, or
+  `partition`. With *termination*: a binding reaches itself. Map over
+  the finite fact instead. With *closed*: a type the rules cannot decide.
+  Declare it. With *grammar*: the refusal names the form and what the
+  domain has instead.
 
 The moves that are not available, because each one keeps the check green
 while the property it checked is gone: asserting a derived subject
 (`Total<Omit<T, 'k'>>` proves a different type, and the gate tier reports
-it); bounding or unrolling a recursive type by hand; widening a type (making
-it less precise so that more values pass) as opposed to extending a map (a
-new case, which every fold must then handle); a directive outside a
-typetest; an `as` anywhere but `as const`; a `declare` outside a typetest.
+it); unrolling a recursive type by hand; widening a type (making it less
+precise so that more values pass) as opposed to extending a map (a new
+case, which every fold must then handle); a directive outside a typetest;
+an `as` anywhere but `as const`; a `declare` outside a typetest; moving a
+module out of the domain's path segments so the acceptor does not walk it.
 
-## What runtime and review hold
+## What review holds
 
 - An observation of a remote system and a fact about it are different types.
   An observation is a `Variant` with a case for every way a poll can end,
   including the ones that learn nothing (unreachable, timed out, pending), and
   only its `seen` case is sealed as a fact by the observer's authority. The
   shapes make this expressible; declaring the two types is a modeling choice.
-- A `Variant` case excludes the fields of every other case; a field that
-  belongs to no case is checked on fresh literals (including every handler's
-  return) and passes structurally on a stored value, as in any structural
-  type system.
 - A decision about raw fields belongs to the boundary module for that fact,
   and a decision about facts belongs to its owner. Lint sees the directory;
   review sees which it is. One boundary module per fact, exporting parsers
   and openers, keeps the two apart.
 - `Sealed.open` proves who sealed a value, not what it is about: put the
-  subject (batch id, row id) inside the sealed payload and have the owner's
-  opener take the expected id. Single consumption of evidence is held at
-  runtime by `'spend'`: the type keeps `open` off it and the spent set
-  refuses a second `spend`, so a receipt settles once and a fence is
-  finalized once. What it does not hold is the effect behind the evidence:
-  a load performed twice issues two receipts, and the idempotency key at
-  the load effect is what makes the second a no-op. Which values are spent
-  and which are held is the owner's declaration, and review sees whether
-  it matches what the value is for.
-- Facts are compared with `compare`, never with `===`, which is identity on
-  records. Lint cannot see the type of an operand, so a domain `===` on two
-  records is review-held until the type-aware rule exists.
-- Two programs pass `tsc` and every tier and still break a guarantee; they
-  are kept in `fixtures/open/` with the layer that closes each. A value
-  with keys its type does not declare, assigned to the narrower type
-  (TypeScript checks excess keys on fresh literals only): the type-aware
-  tier. A domain function performing an effect handed to it as a function
-  parameter: effects as commands, where the domain returns the command and
-  the interpreter in `effects/` performs it.
-- Lint reads syntax. The rules on `Math.random`, `JSON.parse` and the
-  `open…` names of evidence readers hold for the forms code takes when it is
-  written directly; a global bound to another name (`const D = Date`) or a
-  performer named `open…` or `spend…` is visible for what it is in review, and
-  typescript-eslint's type-aware rules are the next hold (`recommendedTypeChecked`
-  refuses the `any` that `JSON.parse` returns wherever it lands).
+  subject (an order id, a row id) inside the sealed payload and have the
+  owner's opener take the expected id. What the kernel does not hold is
+  the effect behind the evidence: a load performed twice issues two
+  receipts, and the idempotency key at the load effect is what makes the
+  second a no-op. Which values are spent and which are held is the
+  owner's declaration, and review sees whether it matches what the value
+  is for.
+- A plane that issues two receipts of one name at once is not counted by
+  the owed index; name them differently. A receipt carried from one
+  attempt's chain into another is refused at runtime, by identity, not
+  statically.
+- A domain that nothing drives passes every check here. Reachability is a
+  property of the host's tree; `knip` and a test per entry point hold it.

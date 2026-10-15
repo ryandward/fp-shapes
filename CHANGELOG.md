@@ -1,5 +1,71 @@
 # Changelog
 
+## 0.7.0
+
+TypeScript only. The Koka core of 0.6 is withdrawn, and what it was
+brought in for is done in the language the shell was always in: the
+command algebra with linearity in the type, and an acceptor over the
+domain's syntax trees that asks tsc's checker the four questions the
+compiler does not ask itself.
+
+- **The command algebra** (`src/command.ts`). A plane declares its
+  operations (`Operations`: per operation the arguments, the closed
+  outcome, which outcome cases issue a receipt by name, which receipt the
+  operation spends), and `commands<Ops, S>()` gives the domain `done` and
+  `suspend`. A domain function returns a `Step<Ops, S, O>` whose third
+  parameter is what the chain owes: the receipts issued and not yet
+  spent. The kernel derives it arm by arm (`After` = owed, less what the
+  operation spends, plus what the answer issues; `suspend` requires what
+  the operation spends to be owed; `done` owes nothing; the index is
+  invariant through a function-typed property). A receipt dropped, spent
+  twice, spent before it is issued or forgotten across an operation is a
+  type error in the arm where it happens. Five gates (`dropped`, `twice`,
+  `early`, `carried`, `relabelled`) and five mutations. `drive(fx, first)`
+  is the interpreter: one performer per operation, the ledger in the
+  kernel's builder, a run `finished` or `halted`. Five runtime tests.
+- **The acceptor** (`scripts/accept.mjs`, `fixtures/accept/`). A walk over
+  every domain module with `tsc`'s program and checker, admitting a
+  grammar and refusing what it does not name. Six rules, each named in
+  its refusal: *grammar*; *exactness* at every declared type (a binding,
+  a return against a declared or contextual return type, an argument, a
+  `satisfies`), case by case through a union and element by element
+  through an array; *purity* of every callee (the kernel's named exports
+  and the algebra's `done`/`suspend`, the domain's own functions and
+  namespaces, a fact's pure methods; never a parameter, a function read
+  from a record, a global or a rebinding of one, a package, a boundary or
+  effects module, the ledger, `Sealed.open`/`spend`, a step's resumption,
+  a `Promise`, `void` or `never`) and of every parameter's type (a fact
+  all the way down: no function, accessor or method; a step and a sealed
+  value carried, not read); *decision*, no call returns a boolean;
+  *termination*, no binding reaches itself through a call or a reference;
+  *closed*, nothing `any`, `unknown` or generic, no `@ts-` directive.
+  Seventy-four fixtures, each a program tsc compiles; the run fails unless
+  every rule is the only rule refusing some fixture. `fixtures/open/` is
+  closed: widening through a binding, an effect through a parameter and an
+  imported boolean are refused. `npm run accept` and `check:accept`.
+- **Depth is not bounded.** `Deep<T>` and the four-container limit are
+  removed from `Total` and `Immutable`; nesting is the model's business,
+  recursion (`Recursive<T>`) is not a fact. The `nested` boundary gate is
+  now accepted.
+- **Nothing of `effects/` is imported by value.** The `open…`/`spend…`
+  reader exception is gone: an effect reaches the domain as data, a step
+  returned and an outcome folded. A type import is allowed.
+- **Removed**: the Koka toolchain and scripts (`koka-install`, `koka-gate`,
+  `koka-gen`, `koka-build`, `koka-mutations`), `fixtures/koka/`, the
+  `compiled` rule group and the FFI tier, `registry` and `spendOnce` from
+  the kernel, `eslint.examples.js`, the `ingest` and `etl` examples.
+- **`examples/fulfil/`** rebuilt on the algebra: a plane of four
+  operations, an attempt of five functions with what each owes in its
+  type, a boundary, adapters minting and spending the hold under a private
+  authority, eight tests, five gates, five mutations.
+- `scripts/mutations.mjs`: a list's `gates` may name several files where
+  the error may land.
+- `SPEC.md`, `GUARANTEES.md`, `README.md` rewritten around the TypeScript
+  contract: the judgment with Δ in the step type, the acceptor's rules,
+  the five kinds of evidence, the domain language, and what is open (two
+  receipts of one name at once; a receipt across attempts, held at
+  runtime; a domain nothing drives).
+
 ## 0.6.2
 
 - `examples/fulfil/`: a second core, unrelated to ingest, with nested
