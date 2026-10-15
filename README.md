@@ -169,7 +169,7 @@ settings make it so, with the tools already in the tree:
 | `Classify<A, M>` | `src/variant.ts` | the signature of a decision | `(a: A) => boolean` |
 | `KindsOf<U>` | `src/variant.ts` | the cases a foreign union names; `Assert<Equal<keyof M, KindsOf<U>>>` pins a domain map to it in both directions | one-way assignability gates |
 | `NonEmpty<T>` + `mapNonEmpty` | `src/variant.ts` | evidence as a value | `array[0]` + `if (!head)` |
-| `Partition<M>` + `partition` | `src/variant.ts` | one classification, every case kept, every bucket named | `filter`, `find`, `some`, `every` |
+| `Partition<M>` + `partition` | `src/variant.ts` | one classification, every case kept, every bucket named; linear in the input | `filter`, `find`, `some`, `every` |
 | `Occupancy<T>` + `occupancy` | `src/boundary/evidence.ts` | the one look at `.length`; elements are defined values, by the signature | `if (xs.length === 0)` downstream |
 | `Sealed<Tag, T, Use>` + `Sealed.open` / `Sealed.spend` | `src/sealed.ts` | who sealed it, and whether it is held (`'open'`: read any number of times) or spent (`'spend'`: read once, by the reader that consumes it); the payload type is exactly what the owner sealed (invariant), the reads re-check the brand at runtime, `spend` halts on a second read, and the payload is frozen at seal time, all the way down | symbol-branded objects; a receipt or token used twice; a wider value sealed as a narrower type |
 | `Decide<F, A, M>` | `src/sealed.ts` | an owner's decision: facts in, sealed verdict out | decision functions returning plain objects |
@@ -204,7 +204,12 @@ as a rejection with an issue; neither copies a symbol key; use
 `strictObject` on external sources so drift is a fact, and for persisted
 rows choose deliberately whether retired fields are drift or history.
 `z.discriminatedUnion` parses a tagged outcome straight into a `Variant`.
-`z.custom` declares a type and parses nothing; lint refuses it.
+The schema is a description: `z.custom` declares a type and parses
+nothing, and `.transform` computes a value no schema describes, so lint
+refuses both; a derived field is computed in the domain from the parsed
+fact, and `.preprocess` normalizes an input that the schema then parses.
+A `.default` or `.catch` is a literal, which the compiler checks for
+excess keys where a binding might carry them.
 
 ## Enforcement
 
@@ -284,11 +289,11 @@ subject to a rule.
 `npm run check` runs all four on TypeScript 5.9.3, zod 4.6, ESLint 9, Node
 22: strict `tsc` (plus `exactOptionalPropertyTypes`,
 `noUncheckedIndexedAccess`, `noUnusedLocals`) over the library, the examples
-and the tests; lint; 144 rule fixtures (110 for the domain and primitives
-tiers, 18 for the boundary tier, 14 for the effects and foreign tiers, 2
-for the ETL example), every one of the 93 rules proved by one; no `.d.ts`
-under `src`; 31 mutations (22 against the library's gates, 9 against the
-examples'); 60 runtime tests.
+and the tests; lint; 152 rule fixtures (113 for the domain and primitives
+tiers, 23 for the boundary tier, 14 for the effects and foreign tiers, 2
+for the ETL example), every one of the 97 rules proved by one; no `.d.ts`
+under `src`; 32 mutations (23 against the library's gates, 9 against the
+examples'); 63 runtime tests.
 
 ## Examples
 

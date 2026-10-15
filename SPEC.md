@@ -27,29 +27,42 @@ transferred.
 
 A fact type `F` is total (`Total<F>`), immutable (`Immutable<F>`), finite and
 shallow: no optional key, no `undefined`, `unknown`, `any`, `never`,
-function, index signature, `Date`, or open object; every property
-readonly, every array a `ReadonlyArray`; no container that is its own
-ancestor; at most four containers on any path from the root to a leaf. A
-sealed value is read through to its payload. These are compile-time gates
-(`src/total.ts`) and hold today.
+function, index signature, symbol key, `Date`, or open object; every
+property readonly, every array a `ReadonlyArray`; no container that is its
+own ancestor; at most four containers on any path from the root to a leaf.
+A fact's keys are names: a symbol key is a hole in the type and a computed
+key is refused in a literal, so what the freeze walks and what the type
+describes are the same set of properties. A sealed value is read through
+to its payload. These are compile-time gates (`src/total.ts`) and hold
+today.
 
 A fact *value* of type `F` has exactly the keys `F` declares, at every
 level. Values enter the domain from three places, and each is exact:
 
 - **K1, a boundary parse.** `boundary(schema)` accepts a schema whose
   output is total and readonly (`TotalSchema`) and returns that output and
-  nothing else: zod builds a fresh object holding the declared keys
-  (`z.object` drops undeclared string keys, `z.strictObject` refuses them
-  as a rejection, and neither copies a symbol key), and the kernel freezes
-  the fact all the way down whatever the schema's form, so a `transform`'s
-  output is frozen too. No function of the caller's stands between the
-  parse and the fact. `z.custom`, which declares a type and returns the
-  input unparsed, is refused by lint. What an owner makes of a parsed fact
-  goes through `sealing(parse, seal)`, where `seal` must return a sealed
-  value whose payload is a fact (`Fact<P>`), and `Sealed` is invariant in
-  its payload, so the payload is exactly what the owner constructed. Holds
-  today; the runtime half is tested (fresh object, declared keys only,
-  frozen through a transform, sealed payload frozen).
+  nothing else. The schema language is zod *as a description*: objects,
+  tuples, arrays, unions and discriminated unions, primitives, brands,
+  coercions, `.default`/`.catch` with a literal, `.prefault`, `.refine`,
+  `.preprocess` (its function runs before the parse, so its result is
+  still parsed), `.pipe`. Lint refuses what computes a value no schema
+  describes: `.transform`, `.overwrite`, `z.codec`, `z.custom`, and a
+  `.default`/`.catch` whose argument is a binding rather than a literal
+  (a literal is excess-checked by the compiler; a binding may be wider).
+  In that language every object output is built by zod with exactly the
+  declared keys (`z.object` drops undeclared string keys, `z.strictObject`
+  refuses them as a rejection, neither copies a symbol key), and the
+  kernel freezes the fact all the way down. No function of the caller's
+  stands between the parse and the fact. What an owner makes of a parsed
+  fact goes through `sealing(parse, seal)`, where `seal` must return a
+  sealed value whose payload is a fact (`Fact<P>`), and `Sealed` is
+  invariant in its payload, so the payload is exactly what the owner
+  constructed from the parsed fact. Holds today, with the runtime half
+  tested: fresh object, declared keys only, strict rejection, frozen
+  through every level, preprocessed input still parsed, sealed payload
+  frozen. What remains is F1 inside the boundary: a payload built from a
+  binding that was narrowed earlier (`const narrow: Small = wide; new
+  Sealed(TAG, narrow, 'open')`) is the flow hole, as everywhere.
 - **C1, a fresh literal.** TypeScript checks a fresh object literal for
   excess keys. The check does not reach spread members, so an object
   spread or rest pattern is refused in the domain, boundary and effects
@@ -60,8 +73,9 @@ level. Values enter the domain from three places, and each is exact:
   import from inside the checked closure. At each site where a value of
   static type `S` is accepted at a declared type `T`, the checker requires
   `keys(S) = keys(T)` recursively through properties and array elements,
-  and per case through a `Variant`'s `kind`. A step that forgets a key is
-  refused. **Not yet enforced**; `fixtures/open/widening.ts` is the program
+  and per case through a `Variant`'s `kind`, where a case's exclusion keys
+  (`k?: never`, the other cases' fields) are not keys of the case. A step
+  that forgets a key is refused. **Not yet enforced**; `fixtures/open/widening.ts` is the program
   it refuses.
 
 Trusted declarations, whose types are taken as written: the kernel
@@ -110,11 +124,14 @@ E(e) is computed by inference over calls:
   invoke no callback other than a domain function checked under this
   judgment (`map`, `flatMap`, `reduce` take one), and read no accessor
   (facts have none; the syntax tier refuses `get`, `set` and methods in a
-  literal). `concat`, `slice`, `join`, `length`, `map`, `flatMap`,
-  `reduce`, the `String` and `Number` operations that return on every
-  input, `Math` without `random`. `JSON.stringify` is not on it: it throws
-  on a `bigint`, which is a fact leaf, and the syntax tier refuses it in
-  the domain; serialization is an edge's job;
+  literal). The list is per overload, not per name: `reduce` with an
+  initial value is total and `reduce` without one throws on an empty
+  array, so the syntax tier refuses the one-argument form. `concat`,
+  `slice`, `join`, `length`, `map`, `flatMap`, seeded `reduce`, the
+  `String` and `Number` operations that return on every input, `Math`
+  without `random`. `JSON.stringify` is not on it: it throws on a
+  `bigint`, which is a fact leaf, and the syntax tier refuses it in the
+  domain and the boundary; serialization is an edge's job;
 - any other call has E = ⊤: a function-typed parameter, a method of a
   value whose type is not a fact, an import from `effects/` other than an
   `open…`/`spend…` reader, an import from `node_modules`, a `Promise`
@@ -171,7 +188,10 @@ Assumed by the theorem, tested in `test/`:
 - K2 `Sealed`: constructed only by the holder of its tag; `open` returns
   the payload of held evidence; `spend` returns the payload of spent
   evidence at most once; the payload is frozen all the way down at
-  sealing; the spent set is the kernel's only runtime state.
+  sealing, through every own property, string- or symbol-keyed, enumerable
+  or not, without reading an accessor; the spent set and the set of
+  objects the kernel has frozen are its two pieces of runtime state, each
+  written once per value.
 - K3 `fold`: dispatches on `kind` once; total by `Cases`.
 - K4 `partition`, `mapNonEmpty`, `occupancy`, `compare`: pure, as tested.
 - K5 the interpreter: performs exactly the command it is given, returns
@@ -210,3 +230,15 @@ contravariantly). Known and open: a global bound to another name
 (`const D = Date`) passes the syntax tier and is refused by the effect
 rule once the checker exists; `Object.keys` returns `string[]`, so a key
 read through it is not a fact's key until the boundary says so.
+
+## 8. Containers, planned
+
+The fact types cover closed records, variants, tuples and arrays. A
+dictionary, a tree, a graph and a document model are refused as single
+facts (an index signature, a recursion, a depth) and are to be structures
+of facts: nodes with identifiers and a separate relation. The kernel does
+not yet provide the containers for that encoding, a finite map and a
+recursive structure with checked constructors and folds, and until it
+does the encoding is by hand. They come after the command algebra, since
+their folds are the domain's and their constructors the kernel's, and
+both are checked under the same judgment.

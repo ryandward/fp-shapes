@@ -32,20 +32,31 @@
 
 import type { Variant } from './variant.js';
 
+const same = <X>(x: X): X => x;
+
 const defect = (message: string): never => {
   throw new Error(message);
 };
 
-// Frozen all the way down: every object and array reachable from the value.
-// The kernel's one freeze, used at sealing and at the boundary.
+// Frozen all the way down: every object and array reachable from the value
+// through any own property, string- or symbol-keyed, enumerable or not. An
+// accessor property has no value to freeze and is not read. The kernel's one
+// freeze, used at sealing and at the boundary. Objects it has frozen are
+// remembered, so a value built from already-frozen parts is not walked
+// again; a WeakSet, written once per object, is the kernel's second piece of
+// runtime state after the spent set.
+const deepFrozen = new WeakSet<object>();
+
 export const frozen = <T extends object>(value: T): T => {
-  const seen = new WeakSet<object>();
   const walk = (v: object): void => {
-    if (seen.has(v)) return;
-    seen.add(v);
+    if (deepFrozen.has(v)) return;
+    deepFrozen.add(v);
     Object.freeze(v);
-    Object.values(v).forEach((inner: object | null) => {
-      if (typeof inner === 'object' && inner !== null) walk(inner);
+    const keys: ReadonlyArray<string | symbol> = [...Object.getOwnPropertyNames(v), ...Object.getOwnPropertySymbols(v)];
+    keys.forEach((key) => {
+      const slot = Object.getOwnPropertyDescriptor(v, key);
+      const inner: object | null = slot !== undefined && 'value' in slot && typeof slot.value === 'object' ? slot.value : null;
+      if (inner !== null) walk(inner);
     });
   };
   walk(value);
@@ -62,14 +73,17 @@ export class Sealed<Tag extends symbol, T extends object, U extends Use = 'open'
   readonly #use: U;
   // The payload type is exactly what the owner sealed: with T in parameter
   // position as well, a Sealed of a wider payload is not a Sealed of the
-  // narrower one, so a value cannot widen by being sealed. The readers pass
-  // the payload through it, which is the identity.
-  readonly #same = (x: T): T => x;
+  // narrower one, so a value cannot widen by being sealed. A property of
+  // function type is what makes it so (a method's parameters are compared
+  // bivariantly); the one shared identity fills it, so no closure is made
+  // per instance, and the readers pass the payload through it.
+  readonly #same: (x: T) => T;
 
   constructor(tag: Tag, value: T, use: U) {
     this.#tag = tag;
     this.#value = frozen(value);
     this.#use = use;
+    this.#same = same;
   }
 
   get provenance(): string {

@@ -12,7 +12,7 @@
 //   foreign     **/effects/**/foreign.ts   describe other code as it is
 //   primitives  **/sealed.ts (the one class, the one brand check, the one halt)
 //               **/total.ts (type-level utilities; names `unknown`, `undefined`)
-//               **/variant.ts (the combinators; the one generic record update)
+//               **/variant.ts (the combinators; the one generic record update and the one builder)
 //   typetests   **/*.typetest.ts      hold the compiler directives, each with a description
 //
 // Recommended on top of this, not verified here: typescript-eslint's
@@ -78,10 +78,12 @@ const rules = {
   // edge's job. Accessors and methods in a literal make a value that is not data.
   partial: [
     rule("MemberExpression[object.name='JSON'][property.name='stringify'], MemberExpression[object.name='JSON'][property.value='stringify']", 'JSON.stringify throws on a bigint, which is a fact leaf; serialize at the edge'),
+    rule("CallExpression[callee.property.name=/^(reduce|reduceRight)$/][arguments.length=1]", 'reduce takes its initial value; without one it throws on an empty array'),
   ],
   accessors: [
     rule("Property[kind=/^(get|set)$/]", 'a fact is data: a field is read, not computed'),
     rule('Property[method=true]', 'a fact is data: a function is not a field'),
+    rule('Property[computed=true]', "a fact's keys are names; a computed key is a symbol or a value the type cannot name"),
   ],
   // filter, find, some and every classify by a predicate and lose the other
   // cases; partition keeps every case under its name.
@@ -139,6 +141,14 @@ const rules = {
     rule(
       "MemberExpression[object.name='z'][property.name='custom'], MemberExpression[object.name='z'][property.value='custom'], ImportDeclaration[source.value='zod'] > ImportSpecifier[imported.name='custom']",
       'a boundary parses; z.custom declares a type and parses nothing, returning the input as it came',
+    ),
+    rule(
+      "CallExpression[callee.property.name=/^(transform|overwrite)$/], CallExpression[callee.property.value=/^(transform|overwrite)$/], MemberExpression[object.name='z'][property.name='codec'], ImportDeclaration[source.value='zod'] > ImportSpecifier[imported.name='codec']",
+      'a boundary describes; a transform computes a value no schema describes, so the fact is derived in the domain from the parsed one',
+    ),
+    rule(
+      "CallExpression[callee.property.name=/^(default|catch)$/] > :matches(Identifier, MemberExpression, CallExpression).arguments",
+      'a default is written where it is declared, as a literal the compiler checks for excess keys',
     ),
   ],
   // An effect is performed in effects/ and reaches the domain as a parameter
@@ -279,7 +289,7 @@ export default [
     files: ['**/boundary/**/*.ts'],
     ignores: ['**/*.test.ts'],
     rules: {
-      'no-restricted-syntax': syntax(...except('conditionals', 'comparisons', 'classification', 'partial', 'unknown', 'predicates', 'brackets')),
+      'no-restricted-syntax': syntax(...except('conditionals', 'comparisons', 'classification', 'unknown', 'predicates', 'brackets')),
       'no-restricted-imports': boundaryImports,
       'no-restricted-globals': boundaryGlobals,
       'local/directives-are-gates': 'error',
@@ -299,7 +309,7 @@ export default [
     // partition's bucket replaced under a key that is a type parameter
     files: ['**/variant.ts'],
     rules: {
-      'no-restricted-syntax': syntax(...except('spreads')),
+      'no-restricted-syntax': syntax(...except('spreads', 'mutation', 'conditionals', 'accessors')),
       'no-restricted-imports': imports,
       'no-restricted-globals': globals,
       'local/directives-are-gates': 'error',

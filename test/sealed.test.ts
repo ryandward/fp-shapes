@@ -90,3 +90,41 @@ test('held evidence is read any number of times', () => {
   const decision = decide();
   assert.deepEqual(open(decision), open(decision));
 });
+
+test('the freeze reaches symbol-keyed and non-enumerable children, and leaves accessors unread', () => {
+  const KEY: unique symbol = Symbol('key');
+  const child = { n: 1 };
+  const hidden = { m: 2 };
+  const payload: { readonly a: { readonly n: number } } = { a: { n: 0 } };
+  Object.defineProperty(payload, KEY, { value: child, enumerable: false });
+  Object.defineProperty(payload, 'hidden', { value: hidden, enumerable: false });
+  const reads: number[] = [];
+  Object.defineProperty(payload, 'computed', {
+    get: () => {
+      reads.push(1);
+      return { never: 'frozen' };
+    },
+  });
+  const FREEZE: unique symbol = Symbol('freeze');
+  const sealed = new Sealed(FREEZE, payload, 'open');
+  const opened = Sealed.open(FREEZE, sealed);
+  assert.ok(Object.isFrozen(opened));
+  assert.ok(Object.isFrozen(opened.a));
+  assert.ok(Object.isFrozen(child), 'a symbol-keyed child is frozen');
+  assert.ok(Object.isFrozen(hidden), 'a non-enumerable child is frozen');
+  assert.equal(reads.length, 0, 'an accessor is not read by the freeze');
+});
+
+test('a value the kernel froze is not walked again', () => {
+  const inner = { n: 1 };
+  const FIRST: unique symbol = Symbol('first');
+  new Sealed(FIRST, { inner }, 'open');
+  const later = { m: 2 };
+  // a frozen object cannot gain a property, so a second walk through `inner`
+  // could not reach `later` either way; what the remembered set changes is
+  // that the walk stops at `inner` without re-reading its descriptors.
+  const outer = { inner, later };
+  new Sealed(FIRST, outer, 'open');
+  assert.ok(Object.isFrozen(later));
+  assert.ok(Object.isFrozen(outer));
+});

@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.5.10
+
+K1 and K2 made true as implemented, not as described.
+
+- The boundary's schema language is zod as a description. Lint refuses
+  `.transform`, `.overwrite` and `z.codec`, which compute a value no schema
+  describes and were a way to widen inside the schema (0.5.9 claimed every
+  schema output was fresh and exact; a transform's was neither), and a
+  `.default`/`.catch` whose argument is a binding rather than a literal.
+  `.preprocess` stays: its result is parsed by the schema. A derived field
+  is computed in the domain from the parsed fact.
+- The kernel's freeze walks every own property through its descriptor:
+  symbol-keyed and non-enumerable children are frozen, accessors are not
+  read. `Object.values` had skipped both. Objects the kernel has frozen
+  are remembered, so a value built from frozen parts is not walked again.
+- A fact's keys are names: a symbol key is a hole in `Total`, and a
+  computed key in a literal is refused in domain and boundary, so the type
+  and the freeze describe the same properties.
+- Totality is per overload: `reduce` without an initial value is refused
+  in domain and boundary (it throws on an empty array); `JSON.stringify`
+  is refused in the boundary as well as the domain.
+- `partition` is linear: a Map builder appends each item to its bucket once
+  and one record update sets the grown buckets; 200,000 items partition in
+  about 50 ms. `variant.ts` holds the one builder.
+- `Sealed`'s invariance witness is a function-typed private property
+  filled by one shared identity, so it allocates nothing per instance; a
+  private method would have been compared bivariantly and proved nothing.
+- Gates and mutations for the symbol-key hole and the builder; runtime
+  laws for the freeze (symbol, non-enumerable, accessor unread, remembered
+  set), strict rejection, preprocess, and freezing through every level.
+- `SPEC.md`: K1 and K2 restated as implemented; exclusion keys named in the
+  flow rule; a section on the containers to come after the command
+  algebra.
+
 ## 0.5.9
 
 K1 established: a boundary's fact is the schema's output and nothing else.

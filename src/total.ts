@@ -1,8 +1,8 @@
 // Compile-time assertions about representations.
 //
 //   Total<T>      completeness: no `?:`, `undefined`, `unknown`, `any`, `never`,
-//                 function, index signature, `Date`, or open object (`{}`,
-//                 `object`) anywhere in a finite, shallow JSON-like value. Branded
+//                 function, index signature, symbol key, `Date`, or open object
+//                 (`{}`, `object`) anywhere in a finite, shallow JSON-like value. Branded
 //                 primitives are leaves. An exclusion key (`k?: never`, as a
 //                 Variant case uses to refuse another case's fields) is not a
 //                 hole: it forbids a key rather than permitting its absence.
@@ -87,10 +87,12 @@ type HasHoles<T> =
       : T extends object ?
         string extends keyof T ? true
         : number extends keyof T ? true
-        : {} extends T ? true // {}, object, or all-optional: open
-        : [OpenKeys<T>] extends [never] ?
-          { [K in keyof T]-?: Forbidden<T, K> extends true ? false : HasHoles<T[K]> }[keyof T]
-        : true
+        : [Extract<keyof T, symbol>] extends [never] ?
+          {} extends T ? true // {}, object, or all-optional: open
+          : [OpenKeys<T>] extends [never] ?
+            { [K in keyof T]-?: Forbidden<T, K> extends true ? false : HasHoles<T[K]> }[keyof T]
+          : true
+        : true // a symbol key: a fact's keys are names
       : false
     ) ?
     true

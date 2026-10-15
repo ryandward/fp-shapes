@@ -7,8 +7,11 @@ listed here so the hole is visible rather than assumed closed.
 
 - `widening.ts`: a value with keys the type does not declare is assigned to
   the narrower type; TypeScript checks excess keys on fresh literals only.
-  Closed by the type-aware tier (an assignment whose source type has keys
-  the target lacks is refused).
+  The same step inside a boundary (`const narrow: Small = wide; new
+  Sealed(TAG, narrow, 'open')`) passes the invariant `Sealed`, since the
+  keys were erased before the seal saw the type. Closed by the checker's
+  flow rule (F1): a step whose source type has keys the target lacks is
+  refused.
 - `parameter-call.ts`: the domain performs an effect handed to it as a
   function. Closed by effects as commands: the domain returns a command
   case and the interpreter in `effects/` performs it, so no domain code

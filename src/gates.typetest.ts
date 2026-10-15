@@ -131,6 +131,9 @@ export type _s2 = Assert<Equal<Total<Sealed<typeof _A, { readonly n?: number }>>
 export type _s3 = Assert<Equal<Immutable<Sealed<typeof _A, { n: number }>>, false>>; // a sealed payload is readonly
 export type _s4 = Assert<Total<Sealed<typeof _A, Four>>>; // the envelope is not a container
 
+declare const KEY: unique symbol;
+export type _k1 = Assert<Equal<Total<{ readonly [KEY]: { readonly n: number } }>, false>>; // a fact's keys are names
+
 // --- the assertion utilities are gates too ------------------------------------
 
 type Brand = string & { readonly __brand: 'Id' };

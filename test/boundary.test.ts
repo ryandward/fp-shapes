@@ -38,18 +38,22 @@ test('a strict schema refuses an undeclared string key as a rejection with its p
   if (parsed.kind === 'rejected') assert.equal(parsed.issues[0].path, '');
 });
 
-test('the kernel freezes the fact all the way down, including what a transform builds', () => {
-  const built = boundary(
-    z
-      .object({ x: z.number() })
-      .readonly()
-      .transform((p): { readonly x: number; readonly tags: ReadonlyArray<{ readonly t: string }> } => ({ x: p.x, tags: [{ t: 'a' }] })),
-  );
-  const parsed = built({ x: 1 });
+test('the kernel freezes the fact all the way down, whatever the schema froze', () => {
+  // `.readonly()` on the outer object only; zod freezes that level and the
+  // kernel the rest. (The type still needs every level readonly.)
+  const built = boundary(z.object({ x: z.number(), tags: z.array(z.object({ t: z.string() }).readonly()).readonly() }).readonly());
+  const parsed = built({ x: 1, tags: [{ t: 'a' }] });
   if (parsed.kind !== 'accepted') throw new Error('fixture must parse');
   assert.ok(Object.isFrozen(parsed.fact));
   assert.ok(Object.isFrozen(parsed.fact.tags));
   assert.ok(Object.isFrozen(parsed.fact.tags[0]));
+});
+
+test('a preprocessed input is still parsed by its schema, so the fact is exact', () => {
+  const normalized = boundary(z.preprocess((raw) => ({ ...(typeof raw === 'object' && raw !== null ? raw : {}), seen: true }), z.object({ x: z.number(), seen: z.boolean() }).readonly()));
+  const parsed = normalized({ x: 1, hidden: 2 });
+  if (parsed.kind !== 'accepted') throw new Error('fixture must parse');
+  assert.deepEqual(Object.keys(parsed.fact), ['x', 'seen']);
 });
 
 test('sealing seals exactly the parsed fact, and the sealed payload is frozen', () => {

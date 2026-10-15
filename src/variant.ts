@@ -56,12 +56,20 @@ export type Partition<M> = {
   readonly [K in keyof M]: ReadonlyArray<Variant<M, K>>;
 };
 
-const into = <M>(acc: Partition<M>, v: Variant<M>): Partition<M> => ({
-  ...acc,
-  [v.kind]: [...acc[v.kind], v],
-});
-
+// The one builder: each item is appended to its bucket in place, once, so a
+// partition of n items costs n appends rather than n copies of a growing
+// bucket; the buckets are fresh arrays nothing else holds while they grow.
+// The result is the caller's empty partition with each grown bucket set under
+// its kind: the one generic record update.
 export const partition =
   <A, M>(classify: Classify<A, M>, empty: Partition<M>) =>
-  (xs: ReadonlyArray<A>): Partition<M> =>
-    xs.map(classify).reduce(into, empty);
+  (xs: ReadonlyArray<A>): Partition<M> => {
+    const grown = new Map<keyof M, Variant<M>[]>();
+    xs.forEach((x) => {
+      const v = classify(x);
+      const bucket = grown.get(v.kind) ?? [];
+      bucket.push(v);
+      grown.set(v.kind, bucket);
+    });
+    return [...grown].reduce((acc: Partition<M>, [kind, items]) => ({ ...acc, [kind]: items }), empty);
+  };
