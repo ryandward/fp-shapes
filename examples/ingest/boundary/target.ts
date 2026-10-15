@@ -1,25 +1,24 @@
 // What the stored row says about this import, decided once.
 //
 // The row's absence, its lifecycle, its source and its destination are read
-// here and nowhere else. `abandoned` is the dead-man's switch: the upload's
-// job was scheduled a day ahead at /initiate and pulled forward by /complete,
-// so reaching the worker with no source or no destination means /complete
-// never came, and the parse that establishes a located row is the parse that
-// fails. `foreign_plane` is a mount: source, which belongs to the storage-
-// mount plane; this worker has no standing to record a verdict on it.
+// here and nowhere else, into the target outcome the core declares. `abandoned`
+// is the dead-man's switch: the upload's job was scheduled a day ahead at
+// /initiate and pulled forward by /complete, so reaching the worker with no
+// source or no destination means /complete never came, and the parse that
+// establishes a located row is the parse that fails. `foreign_plane` is a
+// mount: source, which belongs to the storage-mount plane; this worker has no
+// standing to record a verdict on it.
 
 import { z } from 'zod';
 import { fold, type Variant } from '../../../src/variant.js';
+import type { TargetOutcome } from './ingest.ffi.js';
 
 const located = z
   .object({
-    sourceUri: z.string().brand<'SourceUri'>(),
-    destKey: z.string().min(1).brand<'DestKey'>(),
+    sourceUri: z.string(),
+    destKey: z.string().min(1),
   })
   .readonly();
-
-export type SourceUri = z.output<typeof located>['sourceUri'];
-export type DestKey = z.output<typeof located>['destKey'];
 
 // The row as the ORM hands it over: every field it may leave empty, as typed.
 export type TargetRow = {
@@ -28,17 +27,9 @@ export type TargetRow = {
   readonly lifecycle: { readonly state: string };
 };
 
-export type Target = {
-  gone: {};
-  settled: { readonly state: string };
-  abandoned: {};
-  foreign_plane: { readonly uri: SourceUri };
-  ready: { readonly uri: SourceUri; readonly destKey: DestKey };
-};
-
 type Location = {
   absent: {};
-  present: { readonly uri: SourceUri; readonly destKey: DestKey };
+  present: { readonly uri: string; readonly destKey: string };
 };
 
 const locate = (row: TargetRow): Variant<Location> => {
@@ -50,10 +41,10 @@ const locate = (row: TargetRow): Variant<Location> => {
 
 export const classifyTarget =
   (mountPrefix: string) =>
-  (row: TargetRow | null): Variant<Target> =>
+  (row: TargetRow | null): Variant<TargetOutcome> =>
     row === null ? { kind: 'gone' }
     : row.lifecycle.state !== 'arriving' ? { kind: 'settled', state: row.lifecycle.state }
-    : fold<Location, Variant<Target>>({
+    : fold<Location, Variant<TargetOutcome>>({
         absent: () => ({ kind: 'abandoned' }),
         present: ({ uri, destKey }) =>
           uri.startsWith(mountPrefix) ? { kind: 'foreign_plane', uri } : { kind: 'ready', uri, destKey },

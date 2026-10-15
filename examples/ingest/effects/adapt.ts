@@ -1,45 +1,36 @@
-// The adapters: each foreign call becomes an effect that settles to a case.
+// The adapters: each foreign call becomes the outcome the core asked for.
 //
 // This is where a thrown class, a boolean result, a string-matched message or
-// a null return is read, once per foreign API, and where the receipts are
-// minted. A claim, a fenced write and a finalized file are sealed by
-// authorities private to this module, so the worker can thread them and
-// nothing else can produce them. The `died` case is what a throw becomes:
-// the process failed, not the file.
+// a null return is read, once per foreign API, into the closed outcome the
+// core declares for that operation. The receipts the core threads (a claim, a
+// fenced write, a finalized file) are minted here as records; the FFI keeps
+// their identity and the core can only hand them on. The `…_died` case of
+// every outcome is what a throw becomes: the process failed, not the file.
 
 import { classifyTarget } from '../boundary/target.js';
 import type {
   ClaimOutcome,
+  Definitive,
   FenceOutcome,
   FinalizeOutcome,
-  IngestEffects,
   MarkOutcome,
   SettleOutcome,
   StrandOutcome,
   TargetOutcome,
   TransferOutcome,
-  TransferRequest,
-} from '../contract.js';
-import type { Stranded } from '../status.js';
-import { Sealed } from '../../../src/sealed.js';
+} from '../boundary/ingest.ffi.js';
+import type { Effects } from './ingest.drive.js';
+import type { Transient } from '../report.js';
 import { fold, type Variant } from '../../../src/variant.js';
 import { attempt, type Tried } from '../../../src/effects/attempt.js';
-import type { Foreign, HeadMeta, LockIdentity, Source, StrandedCause, Transition } from './foreign.js';
+import type { Foreign, HeadMeta, LockIdentity, Source, StrandedCause } from './foreign.js';
 
-const CLAIM: unique symbol = Symbol('claim');
-const FENCE: unique symbol = Symbol('fenced');
-const FINAL: unique symbol = Symbol('finalized');
-
-// A claim is held through the attempt; a fence receipt is finalized once and
-// a finalized receipt is settled once, so those two are sealed for one read.
-export type Claim = Sealed<typeof CLAIM, { readonly fileId: string; readonly token: string }, 'open'>;
-export type Fenced = Sealed<typeof FENCE, { readonly fileId: string; readonly bytes: number }, 'spend'>;
-export type Finalized = Sealed<typeof FINAL, { readonly fileId: string }, 'spend'>;
-
-export type Effects = IngestEffects<LockIdentity, Claim, Fenced, Finalized>;
-
-type Died = { readonly kind: 'died'; readonly diagnostic: string };
-const died = (error: Error): Died => ({ kind: 'died', diagnostic: error.message });
+// What one attempt holds from the queue: its lock, and the signal that
+// cancels its transfer.
+export type Attempt = {
+  readonly lock: LockIdentity;
+  readonly signal: AbortSignal;
+};
 
 // A write under the fence: it lands, the fence is gone, or the process failed.
 type Guarded = { held: {}; revoked: {}; died: { readonly diagnostic: string } };
@@ -52,12 +43,36 @@ export type Dropped = {
   orphaned: { readonly diagnostic: string };
 };
 
-export const adapt = (foreign: Foreign): Effects => {
-  const underFence = (fileId: string, transition: Transition, token: string): Promise<Variant<Guarded>> =>
+// The foreign cause vocabulary and the core's definitive causes name the same
+// cases (a gate in gates.typetest.ts holds them together); the foreign one
+// also carries the constant destination the store records.
+const strandedCause: (cause: Variant<Definitive>) => StrandedCause = fold<Definitive, StrandedCause>({
+  deadline_exceeded: ({ afterMs, diagnostic }) => ({ kind: 'deadline_exceeded', afterMs, diagnostic }),
+  destination_refused: ({ diagnostic }) => ({ kind: 'destination_refused', destination: { kind: 'network' }, diagnostic }),
+  format_rejected: ({ format, compression, diagnostic }) => ({ kind: 'format_rejected', format, compression, diagnostic }),
+  never_started: () => ({ kind: 'never_started' }),
+});
+
+// A finalize failure carries the cause the finalizer decided; this reads it
+// whole. A `worker_died` cause from the finalizer is the process failing,
+// which the queue clears; every other cause is the file's, to record.
+const rejectedBy: (cause: StrandedCause) => Variant<FinalizeOutcome> = fold<Definitive & Transient, Variant<FinalizeOutcome>>({
+  worker_died: ({ diagnostic }) => ({ kind: 'finalize_died', diagnostic }),
+  deadline_exceeded: ({ afterMs, diagnostic }) => ({ kind: 'rejected', cause: { kind: 'deadline_exceeded', afterMs, diagnostic } }),
+  destination_refused: ({ diagnostic }) => ({ kind: 'rejected', cause: { kind: 'destination_refused', diagnostic } }),
+  format_rejected: ({ format, compression, diagnostic }) => ({ kind: 'rejected', cause: { kind: 'format_rejected', format, compression, diagnostic } }),
+  never_started: () => ({ kind: 'rejected', cause: { kind: 'never_started' } }),
+});
+
+export const adapt = (foreign: Foreign, holding: Attempt): Effects => {
+  const underFence = (fileId: string, transition: Parameters<Foreign['transitionFile']>[1], token: string): Promise<Variant<Guarded>> =>
     attempt(() => foreign.transitionFile(fileId, transition, { kind: 'fence', token }, foreign.dataSource)).then(
       fold<Tried<void>, Variant<Guarded>>({
         ok: () => ({ kind: 'held' }),
-        failed: ({ error }) => (error instanceof foreign.LifecycleGuardFailed ? { kind: 'revoked' } : died(error)),
+        failed: ({ error }) => {
+          const diagnostic = error.message;
+          return error instanceof foreign.LifecycleGuardFailed ? { kind: 'revoked' } : { kind: 'died', diagnostic };
+        },
       }),
     );
 
@@ -89,24 +104,24 @@ export const adapt = (foreign: Foreign): Effects => {
   const fetchFailure = (error: Error): Variant<TransferOutcome> =>
     foreign.refusedByEgress(error.message) ? { kind: 'refused_by_egress', diagnostic: error.message }
     : error instanceof foreign.TransferDeadlineExceeded ? { kind: 'deadline', afterMs: error.afterMs, diagnostic: error.message }
-    : died(error);
+    : { kind: 'transfer_died', diagnostic: error.message };
 
-  const moveBytes = async (source: Source, request: TransferRequest<LockIdentity, Claim>, token: string): Promise<Variant<TransferOutcome>> => {
-    const advertised = await probe(source, request.uri, request.fileId, token);
+  const moveBytes = async (source: Source, fileId: string, token: string, uri: string, destKey: string): Promise<Variant<TransferOutcome>> => {
+    const advertised = await probe(source, uri, fileId, token);
     const fetched = await attempt(() =>
-      source.fetch(request.uri, request.destKey, {
-        signal: request.signal,
+      source.fetch(uri, destKey, {
+        signal: holding.signal,
         onProgress: (metrics) => {
-          void foreign.publishTransfer(request.fileId, request.lock, { stage: 'transferring', bytesTransferred: metrics.bytesTransferred });
+          void foreign.publishTransfer(fileId, holding.lock, { stage: 'transferring', bytesTransferred: metrics.bytesTransferred });
         },
       }),
     );
     return fold<Tried<{ readonly bytes: number }>, Promise<Variant<TransferOutcome>>>({
       failed: ({ error }) => Promise.resolve(fetchFailure(error)),
       ok: ({ value }) =>
-        attempt(() => foreign.publishTransfer(request.fileId, request.lock, { stage: 'finalizing' })).then(
+        attempt(() => foreign.publishTransfer(fileId, holding.lock, { stage: 'finalizing' })).then(
           fold<Tried<void>, Variant<TransferOutcome>>({
-            failed: ({ error }) => died(error),
+            failed: ({ error }) => ({ kind: 'transfer_died', diagnostic: error.message }),
             ok: () =>
               fold<Advertised, Variant<TransferOutcome>>({
                 unknown: () => ({ kind: 'transferred', bytes: value.bytes }),
@@ -120,24 +135,12 @@ export const adapt = (foreign: Foreign): Effects => {
     })(fetched);
   };
 
-  // A finalize failure carries the cause the finalizer decided; this reads it
-  // whole. A `worker_died` cause from the finalizer is the process failing,
-  // which the queue clears; every other cause is the file's, to record.
-  const rejectedBy = (cause: StrandedCause): Variant<FinalizeOutcome<Finalized>> =>
-    fold<Stranded, Variant<FinalizeOutcome<Finalized>>>({
-      worker_died: ({ diagnostic }) => ({ kind: 'died', diagnostic }),
-      deadline_exceeded: (c) => ({ kind: 'rejected', cause: c }),
-      destination_refused: (c) => ({ kind: 'rejected', cause: c }),
-      format_rejected: (c) => ({ kind: 'rejected', cause: c }),
-      never_started: (c) => ({ kind: 'rejected', cause: c }),
-    })(cause);
-
   return {
     target: (fileId) =>
       attempt(() => foreign.ingestTarget(fileId)).then(
         fold<Tried<Awaited<ReturnType<Foreign['ingestTarget']>>>, Variant<TargetOutcome>>({
           ok: ({ value }) => classifyTarget(foreign.mountSourcePrefix)(value),
-          failed: ({ error }) => died(error),
+          failed: ({ error }) => ({ kind: 'target_died', diagnostic: error.message }),
         }),
       ),
 
@@ -146,70 +149,60 @@ export const adapt = (foreign: Foreign): Effects => {
         foreign.transitionFile(fileId, { kind: 'failed', cause: { kind: 'never_started' } }, { kind: 'unsettled' }, foreign.dataSource),
       ).then(
         fold<Tried<void>, Variant<MarkOutcome>>({
-          ok: () => ({ kind: 'recorded' }),
-          failed: ({ error }) => died(error),
+          ok: () => ({ kind: 'marked' }),
+          failed: ({ error }) => ({ kind: 'mark_died', diagnostic: error.message }),
         }),
       ),
 
-    claim: (fileId, lock) =>
-      attempt(() => foreign.claimFile(fileId, lock.workerId)).then(
-        fold<Tried<string>, Variant<ClaimOutcome<Claim>>>({
-          ok: ({ value }) => ({ kind: 'claimed', claim: new Sealed(CLAIM, { fileId, token: value }, 'open') }),
-          failed: ({ error }) => died(error),
+    claim: (fileId) =>
+      attempt(() => foreign.claimFile(fileId, holding.lock.workerId)).then(
+        fold<Tried<string>, Variant<ClaimOutcome>>({
+          ok: ({ value }) => ({ kind: 'claimed', c: { fileId, token: value } }),
+          failed: ({ error }) => ({ kind: 'claim_died', diagnostic: error.message }),
         }),
       ),
 
-    transfer: (request) => {
-      const { token } = Sealed.open(CLAIM, request.claim);
-      const source = foreign.sourceForUri(request.uri);
-      return source === null ? Promise.resolve({ kind: 'unsupported_scheme' }) : moveBytes(source, request, token);
+    transfer: (c, uri, destKey) => {
+      const source = foreign.sourceForUri(uri);
+      return source === null ? Promise.resolve({ kind: 'unsupported_scheme' }) : moveBytes(source, c.fileId, c.token, uri, destKey);
     },
 
-    fence: (claim, bytes) => {
-      const { fileId, token } = Sealed.open(CLAIM, claim);
-      return underFence(fileId, { kind: 'measured', sizeBytes: bytes }, token).then(
-        fold<Guarded, Variant<FenceOutcome<Fenced>>>({
-          held: () => ({ kind: 'held', fenced: new Sealed(FENCE, { fileId, bytes }, 'spend') }),
-          revoked: () => ({ kind: 'revoked' }),
-          died: (d) => d,
+    fence: (c, bytes) =>
+      underFence(c.fileId, { kind: 'measured', sizeBytes: bytes }, c.token).then(
+        fold<Guarded, Variant<FenceOutcome>>({
+          held: () => ({ kind: 'held', f: { fileId: c.fileId, bytes } }),
+          revoked: () => ({ kind: 'fence_revoked' }),
+          died: ({ diagnostic }) => ({ kind: 'fence_died', diagnostic }),
         }),
-      );
-    },
+      ),
 
-    finalize: (fenced) => {
-      const { fileId } = Sealed.spend(FENCE, fenced);
-      return attempt(() => foreign.finalizeAfterBytes(fileId)).then(
-        fold<Tried<Awaited<ReturnType<Foreign['finalizeAfterBytes']>>>, Variant<FinalizeOutcome<Finalized>>>({
-          ok: ({ value }) => (value.ok ? { kind: 'finalized', finalized: new Sealed(FINAL, { fileId }, 'spend') } : rejectedBy(value.cause)),
-          failed: ({ error }) => died(error),
+    finalize: (f) =>
+      attempt(() => foreign.finalizeAfterBytes(f.fileId)).then(
+        fold<Tried<Awaited<ReturnType<Foreign['finalizeAfterBytes']>>>, Variant<FinalizeOutcome>>({
+          ok: ({ value }) => (value.ok ? { kind: 'finalized', z: { fileId: f.fileId, bytes: f.bytes } } : rejectedBy(value.cause)),
+          failed: ({ error }) => ({ kind: 'finalize_died', diagnostic: error.message }),
         }),
-      );
-    },
+      ),
 
-    settle: (claim, finalized) => {
-      const { fileId, token } = Sealed.open(CLAIM, claim);
-      const { fileId: finalizedFileId } = Sealed.spend(FINAL, finalized);
-      return fileId === finalizedFileId ?
-          underFence(fileId, { kind: 'settled' }, token).then(
-            fold<Guarded, Variant<SettleOutcome>>({
-              held: () => ({ kind: 'settled' }),
-              revoked: () => ({ kind: 'revoked' }),
-              died: (d) => d,
-            }),
-          )
-        : Promise.resolve({ kind: 'died', diagnostic: `settle takes the receipt for ${fileId}; this one is for ${finalizedFileId}` });
-    },
+    settle: (c, z) =>
+      c.fileId === z.fileId ?
+        underFence(c.fileId, { kind: 'settled' }, c.token).then(
+          fold<Guarded, Variant<SettleOutcome>>({
+            held: () => ({ kind: 'settle_done' }),
+            revoked: () => ({ kind: 'settle_revoked' }),
+            died: ({ diagnostic }) => ({ kind: 'settle_died', diagnostic }),
+          }),
+        )
+      : Promise.resolve({ kind: 'settle_died', diagnostic: `settle takes the receipt for ${c.fileId}; this one is for ${z.fileId}` }),
 
-    strand: (claim, cause) => {
-      const { fileId, token } = Sealed.open(CLAIM, claim);
-      return underFence(fileId, foreign.transitionForCause(cause), token).then(
+    strand: (c, cause) =>
+      underFence(c.fileId, foreign.transitionForCause(strandedCause(cause)), c.token).then(
         fold<Guarded, Variant<StrandOutcome>>({
           held: () => ({ kind: 'recorded' }),
-          revoked: () => ({ kind: 'revoked' }),
-          died: (d) => d,
+          revoked: () => ({ kind: 'strand_revoked' }),
+          died: ({ diagnostic }) => ({ kind: 'strand_died', diagnostic }),
         }),
-      );
-    },
+      ),
   };
 };
 

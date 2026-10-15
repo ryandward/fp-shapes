@@ -1,0 +1,10 @@
+{
+  "koka": "3.2.9",
+  "core": "ingest",
+  "entry": "ingest",
+  "modules": ["evidence", "ingest"],
+  "build": ".build",
+  "ffi": "../boundary/ingest.ffi.ts",
+  "drive": "../effects/ingest.drive.ts",
+  "lib": "../../../src"
+}

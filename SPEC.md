@@ -1,27 +1,39 @@
 # The contract
 
 What "accepted by fp-shapes" means, as the rules a checker enforces and the
-contracts a kernel keeps. The syntax tiers and the gates hold part of this
-today; the rest is the target of the next releases, and the command algebra
-is designed against these rules so that the checker can verify it without a
-second rewrite. Where a rule is not yet enforced, this document says so.
+contracts a kernel keeps. Since 0.6 the domain core is written in Koka and
+the checker of the core is the Koka compiler together with the gate in
+`scripts/koka-gate.mjs`; the shell around it (the boundary, the effects, the
+shell-side domain code) is TypeScript held by the syntax tiers and the
+gates. Where a rule is not yet enforced, this document says so.
 
-An accepted program is a TypeScript program that
+An accepted program is
 
-1. compiles under the strict flags in `tsconfig.json`,
-2. passes the syntax tiers in `eslint.config.js`, and
-3. passes the checker, whose judgment is
+1. a core: Koka modules that compile under the pinned compiler (JavaScript
+   backend), pass the gate over their import closure, and are reached from
+   the shell only through the FFI the generator writes for them (§3); and
+2. a shell: a TypeScript program that compiles under the strict flags in
+   `tsconfig.json` and passes the syntax tiers in `eslint.config.js`.
+
+The judgment this document is written against is
 
        Γ ; Δ ⊢ e : T ! E ; Δ′
 
-   read: under facts Γ and linear evidence Δ, expression `e` has type `T`,
-   may perform effects `E`, and leaves linear evidence Δ′.
+read: under facts Γ and linear evidence Δ, expression `e` has type `T`,
+may perform effects `E`, and leaves linear evidence Δ′. In the core, Γ, T
+and E are the compiler's: a nominal type for every fact, a closed sum for
+every outcome, and an effect row that names every operation `e` may
+perform, inferred and refused against the declaration. Δ is tracked at
+runtime by the shell (§4). In the shell, Γ and T are TypeScript's on the
+subset the tiers leave, E is the tiers' import and global discipline, and
+Δ is the kernel's spent set.
 
 Γ holds the bindings in scope whose types are facts. Δ is a multiset of the
-bindings in scope whose types are spent evidence (`Sealed<_, _, 'spend'>`).
-E is the set of effect operations `e` may perform; in the domain it is
-empty. Δ′ is Δ after `e` has consumed or transferred what it consumed or
-transferred.
+bindings in scope whose types are spent evidence (a receipt in the core, a
+`Sealed<_, _, 'spend'>` in the shell). E is the set of effect operations
+`e` may perform; in the core it is exactly the plane's command effect, in
+shell-side domain code it is empty. Δ′ is Δ after `e` has consumed or
+transferred what it consumed or transferred.
 
 ## 1. Facts
 
@@ -113,43 +125,55 @@ inside a callback (§4).
 
 ## 3. Effects
 
-E(e) is computed by inference over calls:
+**In the core.** A core function declares its effect row, and the compiler
+infers the row of its body and refuses the function when the inferred row
+is not covered by the declared one. The plane's command algebra is one
+effect declaration, one `ctl` operation per command, each returning that
+command's closed outcome. An attempt is a function whose row is exactly
+that effect: a match that misses a case puts `exn` in the inferred row, a
+print puts `console` there, a recursive call puts `div` there, a read of a
+reference puts `st` there, and each is refused before anything runs. A
+value with a field its type lacks is refused by the constructor; a
+constructor hidden by `abstract` cannot be written outside its module, nor
+matched on, nor its fields read. `examples/ingest/core/mutations.mjs` holds
+one loosening per refusal, and the compiler must refuse each.
 
-- a kernel combinator (`fold`, `partition`, `mapNonEmpty`, `occupancy`,
-  `compare`, `Sealed.open`) has E = ∅; `Sealed.spend` has E = ∅ and the
-  linear effect of §4;
-- a domain function has the E of its body;
-- an allowlisted operation of a built-in value has E = ∅. The allowlist
-  holds only operations that are total on fact inputs: they do not throw,
-  invoke no callback other than a domain function checked under this
-  judgment (`map`, `flatMap`, `reduce` take one), and read no accessor
-  (facts have none; the syntax tier refuses `get`, `set` and methods in a
-  literal). The list is per overload, not per name: `reduce` with an
-  initial value is total and `reduce` without one throws on an empty
-  array, so the syntax tier refuses the one-argument form. `concat`,
-  `slice`, `join`, `length`, `map`, `flatMap`, seeded `reduce`, the
-  `String` and `Number` operations that return on every input, `Math`
-  without `random`. `JSON.stringify` is not on it: it throws on a
-  `bigint`, which is a fact leaf, and the syntax tier refuses it in the
-  domain and the boundary; serialization is an edge's job;
-- any other call has E = ⊤: a function-typed parameter, a method of a
-  value whose type is not a fact, an import from `effects/` other than an
-  `open…`/`spend…` reader, an import from `node_modules`, a `Promise`
-  method, a dynamic `import`.
+The compiler leaves a few doors open under a `total` row, and the gate
+closes them by token over the core's whole import closure: `extern`
+(foreign code), `unsafe-*` and `pretend-*` (a row asserted), `trace` (a
+print without the console effect), `var` and `ref` (local state the
+compiler masks), `handler`, `with`, `mask` and the other handler forms (a
+core that answers its own operations is a core without a shell), any
+`@`-name, and any standard module outside the pure prelude. The gate reads
+tokens outside comments and literals; `fixtures/koka/` holds one fixture
+per refusal and the accepted forms, and `check:koka` runs them.
 
-A domain function is accepted only if E = ∅. The syntax tier holds the
-import and ambient-global half of this today; the call half (a parameter
-called, a method of an unknown value) is **not yet enforced**;
-`fixtures/open/parameter-call.ts` is the program it refuses.
+**The bridge.** The generator (`scripts/koka-gen.mjs`) reads the compiler's
+interface files and writes, per core, a bridge module in Koka: a `step`
+type with `Done(status)` and one `Await-<op>(args…, resume)` per operation,
+whose `resume` takes that operation's outcome and no other, so an answer of
+the wrong kind has no constructor to arrive in; `start`, which runs the
+attempt under the handler that suspends at each operation; and a fold per
+public type, the one way the shell reads a value of the core's.
 
-**Commands.** A domain step performs nothing. It returns a closed
-`Variant<Command>` (the plane declares the map) together with the next
-state, and the interpreter in `effects/` is the only performer: a total
-`Cases<Command, Promise<Variant<Outcome>>>`, one handler per command,
-returning a closed outcome the next step folds. `attempt` exists only
-inside the interpreter. The ingest and ETL examples are to be rewritten to
-this shape (0.6); the contract types that hand performers to the domain
-go away with it.
+**The FFI.** The generator also writes the shell's side: a `.d.ts` per
+compiled module in which every type is opaque (branded) and every
+constructor and fold is typed, so a literal is not a value of a core type;
+a boundary module holding a schema per type that crosses in, the
+conversions in (parse, construct through the compiled constructors,
+freeze) and out (fold into a frozen Variant), the receipts' registries and
+the step Variant; and an effects module holding the interpreter. What the
+FFI carries is `string`, `int` as a safe integer, `bool`, `vector<T>` and
+the core's own structs, sums and abstract types; anything else is refused
+by name at generation, as is a recursive type, with what to use instead.
+
+**The interpreter.** `drive(fx)` folds the step Variant: a suspension's
+arguments go to the matching performer in the `Effects` record, the
+outcome comes back, the resumption is called with it, and the loop
+continues; `done` returns the status with the ledger, every command and
+its outcome frozen in the order they happened. `attempt` exists only in
+the performers. The ingest example is written to this shape; the ETL
+example remains TypeScript domain code under the tiers.
 
 ## 4. Linear evidence
 
@@ -168,14 +192,25 @@ case field in a `fold` handler, a field of a command outcome.
 - Dropping is refused: at a terminal step (the plane declares which
   command cases end a run) Δ′ must be ∅.
 
-This is linear dataflow, not occurrence counting; it is **not yet
-enforced**. What holds today is the runtime half, which stays: `spend`
-refuses the second read of the same value whatever route it took, and
-the interpreter's ledger (0.6) records every spent-evidence value it
-issues during a run and, at the run's end, refuses success with one
-unspent and reports failure or cancellation with the unspent ones named,
-so nothing is dropped silently on the paths the static rule cannot see
-(an alias from outside accepted source, an abort, a thrown defect).
+This is linear dataflow, not occurrence counting. Koka's type system
+does not track it: a core may hand the same receipt to two operations, or
+drop one, and compile (`fip` ownership reports both, as warnings, for
+functions that may not allocate; it cannot host an attempt). So Δ is
+**enforced at runtime, in the shell, and not yet statically.** What holds:
+a receipt an operation takes is spent when the step for that operation is
+read, through the same spent set `Sealed.spend` keeps, and a second
+operation on the same receipt halts the attempt; a step's resumption is
+spent when it is called, so a suspension resumed twice halts; a receipt's
+fields are read from the registry the shell minted it into, by identity,
+so a value the core produced by any route other than an outcome (Koka
+derives a copy-with-update for every constructor, hidden or not) halts
+as a value the shell did not mint; and the ledger records every command
+and outcome. Dropping is not yet refused: a run that ends with a receipt
+issued and never spent is not reported, which is the next piece of the
+ledger. A static pass over the core for the rule above, with a receipt's
+flow through matches as paths and the attempt's returns as the points
+where Δ′ = ∅ is required, is 0.7; it reads the compiler's core output, not
+the source, and it is the one checker left to write.
 
 ## 5. The kernel's contract
 
@@ -194,8 +229,17 @@ Assumed by the theorem, tested in `test/`:
   written once per value.
 - K3 `fold`: dispatches on `kind` once; total by `Cases`.
 - K4 `partition`, `mapNonEmpty`, `occupancy`, `compare`: pure, as tested.
-- K5 the interpreter: performs exactly the command it is given, returns
-  a closed outcome, keeps the ledger of §4.
+- K5 the interpreter: performs exactly the command the core suspended
+  on, through the performer of that name, resumes the core with the
+  outcome it returned, and keeps the ledger of §4.
+- K6 the FFI: every value crossing into the core is parsed by its schema
+  (a defect of the shell halts, naming the field), built through the
+  compiled module's constructors from the parsed copy, and frozen; every
+  value crossing out is read through a generated fold into a frozen
+  Variant, or, for a receipt, from the registry by identity; a
+  resumption is called at most once; a receipt is spent at most once.
+  `examples/ingest/ffi.test.ts` holds each of these; the generator's
+  output is itself linted under the boundary and effects tiers.
 
 ## 6. The intended theorem
 
@@ -213,8 +257,10 @@ the constructs the tiers leave available:
 5. 1–4 are preserved by execution.
 
 Proof by induction on the evaluation of accepted programs, with the
-kernel as the trusted base. The argument is written once the checker
-exists, against the checker's rules.
+kernel as the trusted base. For the core, 1–3 are the compiler's theorems
+(nominal types, exhaustive matches and effect rows), restricted to what
+the gate leaves; 4 is the ledger's, at runtime, until the pass of §4.
+For the shell, the argument is against the tiers and K1–K6.
 
 ## 7. What is excluded, and what is not
 
@@ -247,102 +293,69 @@ both are checked under the same judgment.
 
 Purity, totality and linear use are properties of the program that calls
 the kernel, not of the kernel: they are established by accepting or
-refusing programs, and a kernel is a guard only on what crosses its API. A
-kernel compiled from a language with a verified semantics would prove the
-freeze, the brand check and the fold correct, which the tests already
-hold cheaply, and would see nothing of a `fetch` in the domain or a receipt
-used on two paths. Nor is anything in the same process un-bypassable: an
-in-process guard is bypassed by not calling it. The guards that cannot be
-routed around are the build, which refuses a program before it exists,
-and a separate process that holds the state and refuses a bad transition.
+refusing programs, and a kernel is a guard only on what crosses its API.
+Nor is anything in the same process un-bypassable: an in-process guard is
+bypassed by not calling it. The guards that cannot be routed around are
+the build, which refuses a program before it exists, and a separate
+process that holds the state and refuses a bad transition.
 
-The trusted base is therefore: TypeScript's type checker on the subset the
-tiers leave (no `any`, no assertion, no spread, no bivariant method
-signature, no directive outside a typetest); the kernel in §5, as tested;
-zod's descriptive forms, as tested in `GUARANTEES.md`; the runtime. No
-language reaches running JavaScript with a verified semantics intact, so
-this base does not shrink by changing the kernel's language.
+The core's checker is the Koka compiler, which refuses the programs of §3
+by construction rather than by a list of forbidden spellings; the gate is
+the list that remains, seven tokens and an import whitelist, and it is a
+gate, not a type checker. The trusted base is therefore: the pinned Koka
+compiler and its JavaScript backend, on the subset the gate leaves; the
+generator, whose output is linted under the shell's tiers and whose
+guarantees are tested in `examples/ingest/ffi.test.ts`; TypeScript's type
+checker on the subset the tiers leave for the shell; the kernel in §5, as
+tested; zod's descriptive forms, as tested in `GUARANTEES.md`; the
+runtime. The compiler's representation of a value is not part of the
+contract: a nullary constructor may be `null`, a one-field struct is its
+field, and the shell never reads a `_tag`; every read is a generated fold
+and every write a generated constructor call, which is why a one-field
+abstract type is refused at generation (a bare field has no identity for
+the registry to keep).
 
-Rigor goes into the checker's core: the judgment of this document as a
-small calculus (records, variants, `fold`, seal and spend, commands and
-the interpreter) in a proof assistant, with preservation proved there
-(exactness through every step, no effects in domain terms, Δ′ = ∅ at
-every terminal). The checker over TypeScript syntax is then an
-implementation of a proven calculus, and the elaboration from syntax into
-the calculus is the one unverified piece, kept small enough to review.
-That is what makes §6 a theorem. Should the properties be required of a
-language rather than a checker, the domain can be written in one that has
-them and compiles to JavaScript (totality and linear use in Idris 2,
-effect types in Koka), at the cost of a second toolchain, a boundary at
-the foreign-function interface where values are parsed again, and no
-change to the island risk, since the host can still fail to call the
-core. That is an option held, not a step planned.
+What the move to Koka bought is the checker over a TypeScript subset that
+§10 of 0.5 planned: exactness, totality and effect purity are now the
+language's, not a list of refusals maintained against the language. What
+it did not buy is linearity (§4), the island risk (a host can still fail
+to call the core, which the shell's tiers and the import refusals remain
+for), or a second opinion on the compiler itself. Rigor, where it goes
+next, goes into the linearity pass of §4 and into a proof of preservation
+for the FFI's conversions, which are the one unverified piece of the
+bridge and are kept small enough to review.
 
-## 10. The domain grammar
+## 10. The core language
 
-The checker of §3 is an acceptor for a grammar, not a refuser over
-TypeScript. A form that is not in the grammar does not exist, so there is
-no alternative spelling of a refused construct; the syntax tiers remain
-the shell's discipline and a first pass, and the acceptor is the authority
-on what the domain is. The grammar is chosen so that the core is not
-Turing-complete and every accepted program terminates, by construction.
+The core is the subset of Koka the gate leaves. The grammar of 0.5 §10, an
+acceptor over TypeScript syntax, is withdrawn: its three guarantees are
+the compiler's here, and the one it did not reach either, linearity, is
+§4's runtime rule and the pass planned for 0.7.
 
-**Modules.** Static named imports, acyclic, from: the kernel; a `boundary/`
-module, any name but `parse…`; an `effects/` module, only `open…` and
-`spend…` readers; another domain module. Type aliases. `export const`
-bindings in dependency order: a binding references only what is bound
-before it in the module, never itself, and never a later binding.
+**Modules.** A core directory holds a module per file; `koka.json` beside
+it names the core module, the entry function, the modules the FFI reads,
+and where the generated shell goes. Imports are the core's own modules
+and the pure prelude (`std/core` and the data modules under it); nothing
+else, and nothing from `std/os`, `std/sys` or the handler, debug, unsafe
+and undiv modules.
 
-**Expressions.** A literal (string, number, bigint, boolean, `null`, a
-template with expressions, an object literal with name keys, an array
-literal); an identifier, resolving to a parameter, an earlier `const` or
-an import; a property read by name; a call; an arrow function with every
-parameter annotated and the return annotated; inside a block body, `const`
-and `return` and nothing else. Not in the grammar: `as` in any form,
-including `as const`, which has no job once every binding is annotated.
+**Types.** `struct` for a fact, `type` with constructors for a sum,
+`abstract struct` for evidence (a receipt type ends in `-receipt` and is
+spent by the operation that takes it). Fields are `string`, `int`,
+`bool`, `vector<T>` or another of the core's types; no functions, tuples,
+`maybe` or `list` across the FFI, no type parameters, no recursion.
 
-**Types.** A fact type (§1); `Variant<M>`; `ReadonlyArray` or `NonEmpty`
-of one; `Sealed<Tag, P, Use>` with `P` a fact type; a function type over
-these; the kernel's types. Domain functions are monomorphic; the kernel's
-generics are instantiated first-order at call sites by the acceptor. An
-effectful type (`void`, `Promise<X>`, `unknown`, a class) is not a type of
-the grammar, so an effectful parameter cannot be written, and a function
-parameter that can be written is a pure function by induction; the rule
-"no domain function calls a parameter" is not needed.
+**Effects.** One `effect` per plane, `ctl` operations only, each returning
+a closed outcome. The attempt's row is that effect and nothing else.
 
-**Calls.** To the kernel's combinators (`fold`, `partition`, `mapNonEmpty`,
-`compare`, `Sealed.open`, `Sealed.spend`), to a domain function, to a
-function parameter, or to an allowlisted method of a fact value (`map`,
-`flatMap`, seeded `reduce`, `concat`, `slice`, `join`), each bounded by a
-finite input.
+**Terms.** Matches, constructor applications, calls to the core's own
+functions and to the prelude, string and integer arithmetic. No handlers,
+no local state, no `extern`, no row assertions, no recursion (the row
+would say `div`), no exceptions (the row would say `exn`).
 
-**Termination.** An accepted program is a term of a simply-typed calculus
-with records, variants and arrays and a fixed set of total constants. With
-no self-reference, acyclic imports and iteration only through combinators
-bounded by their inputs, the call graph is finite and acyclic and every
-evaluation terminates, given that the combinators terminate on finite
-data, which they do by their lengths. This is strong normalization for the
-simply-typed fragment, a standard result, and it is what "strongly
-normalizing by construction" means here. Purity is by the same
-construction: no call target in the grammar performs anything.
-
-**Exactness, effects, linearity.** Mandatory annotations and literal
-shapes make the acceptor's type system nearly syntactic: at every site a
-value flows, the declared type of the source and the declared type of the
-target have the same keys (§1 F1), with first-order unification for the
-kernel's generics. E = ∅ holds by the grammar. Δ (§4) is tracked by the
-acceptor over the same terms, with `fold` handlers as paths and the
-plane's terminal cases as the points where Δ′ = ∅ is required.
-
-**The perimeter.** `boundary(schema)` is the one bridge from the
+**The perimeter.** The FFI of §3 is the one bridge from the
 Turing-complete shell into the core: zod is the dynamic parser at the
-perimeter and nothing else, and the shell (`boundary/`, `effects/`, the
-interpreter) stays Turing-complete TypeScript held by the tiers, the
-kernel, the tests and the process boundary. The trusted base of §9 is
-unchanged, except that the acceptor, not tsc, decides what the domain is;
-tsc remains the compiler and a second opinion.
-
-**Consequences for 0.6.** The command algebra is written in this grammar:
-monomorphic steps over a plane's command and outcome types, annotated
-throughout, no recursion, trees and dictionaries as structures of facts
-walked by kernel folds.
+perimeter, every value is parsed every time it crosses in, and the shell
+(`boundary/`, `effects/`, the interpreter, the shell-side domain code)
+stays TypeScript held by the tiers, the kernel, the tests and the process
+boundary.

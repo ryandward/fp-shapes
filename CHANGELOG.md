@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.6.0
+
+The command algebra, with the domain core in Koka.
+
+- The core is Koka (3.2.9, JavaScript backend, pinned in `koka.json` and
+  refused at any other version). Facts are structs, outcomes closed sums,
+  evidence abstract structs, and a plane's command algebra is one
+  `effect` with a `ctl` operation per command; an attempt is a function
+  whose row is that effect and nothing else. A missing case, a print, a
+  recursive call, a thrown value, a field a type lacks, a receipt built or
+  read in the core: each is a compile error. The ingest example's worker,
+  contract and status modules are replaced by `examples/ingest/core/`.
+- `scripts/koka-gate.mjs`: what the compiler leaves open under a `total`
+  row is refused by token over the core's import closure, outside comments
+  and literals: `extern`, `unsafe-*`, `pretend-*`, `trace`, `var`, `ref`,
+  the handler forms, `@`-names, and any standard module outside the pure
+  prelude. `fixtures/koka/` holds one fixture per refusal.
+- `scripts/koka-gen.mjs` and `scripts/koka-build.mjs`: from the compiler's
+  interface files, a bridge in Koka (a step per operation whose resumption
+  takes that operation's outcome and no other; `start`; a fold per type),
+  a `.d.ts` per compiled module with every type opaque, a boundary module
+  (a schema per crossing type, conversions in and out, receipts minted
+  into a registry and read by identity, resumptions and receipts spent
+  once) and the interpreter (`drive`, with the ledger). The generated
+  TypeScript is committed, linted under its tiers, and `koka:check` fails
+  when it differs from what the core generates. The FFI carries `string`,
+  `int` as a safe integer, `bool`, `vector<T>` and the core's types;
+  anything else is refused at generation by name.
+- `scripts/koka-mutations.mjs`: each loosening of a core names the check
+  that must refuse it (compiler, gate, typecheck, tests); nineteen in
+  `examples/ingest/core/mutations.mjs`, including the two held at runtime
+  (a receipt copied with `f(bytes = 0)`, a receipt spent twice).
+- The kernel exports `defect` (the one halt), `spendOnce` (a value read
+  once, through the spent set `Sealed.spend` keeps) and `registry` (what
+  the shell minted, read back by the identity it was minted as).
+- Found while building it, and now gates: a Koka struct is a mutable
+  JavaScript object and a constructor validates nothing (so the FFI
+  parses, copies and freezes in both directions); `abstract` hides a
+  constructor, a match and the field reads but not the derived
+  copy-with-update (so provenance is the registry's, by identity); a
+  one-field struct is represented as its field (so a receipt has two);
+  a `ctl` resumption is multi-shot from JavaScript (so a step is spent).
+- `SPEC.md`: the core's judgment is the compiler's for Γ, T and E; Δ is the
+  shell's at runtime and the linearity pass over the core is 0.7; §10's
+  acceptor over a TypeScript subset is withdrawn, its three guarantees
+  being the language's. `GUARANTEES.md` gains the core's compiler as a
+  fourth kind of evidence and the FFI's rows. `README.md` describes the
+  core and the build.
+- `npm run koka:install` puts the compiler under `.koka-prefix/`;
+  `npm run check` builds the core first and runs the gate's fixtures and
+  the core's mutations after the TypeScript gates.
+
 ## 0.5.11
 
 - `GUARANTEES.md`: the reviewer's map. The three kinds of evidence and

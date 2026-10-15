@@ -6,7 +6,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Sealed } from '../src/sealed.js';
+import { Sealed, registry, spendOnce } from '../src/sealed.js';
 
 const AUTHORITY: unique symbol = Symbol('authority');
 type Verdict = { readonly kind: 'go' | 'stop'; readonly reasons: readonly string[] };
@@ -127,4 +127,27 @@ test('a value the kernel froze is not walked again', () => {
   new Sealed(FIRST, outer, 'open');
   assert.ok(Object.isFrozen(later));
   assert.ok(Object.isFrozen(outer));
+});
+
+// --- the readers a generated FFI uses ------------------------------------------
+
+test('spendOnce reads a value once; the second read of the same value halts, through the spent set Sealed.spend keeps', () => {
+  const receipt = { token: 't' };
+  assert.equal(spendOnce(receipt), receipt);
+  assert.throws(() => spendOnce(receipt), /spent once/);
+  const resumption = (): number => 1;
+  assert.equal(spendOnce(resumption), resumption);
+  assert.throws(() => spendOnce(resumption), /spent once/);
+});
+
+test('a registry reads back what was minted under a value, frozen, and nothing for a value it did not mint', () => {
+  const receipts = registry<{ readonly fileId: string; readonly bytes: number }>('fenced');
+  const key = { file_id: 'f', bytes: 1 };
+  const fields = { fileId: 'f', bytes: 1 };
+  assert.equal(receipts.mint(key, fields), key);
+  assert.equal(receipts.read(key), fields);
+  assert.ok(Object.isFrozen(receipts.read(key)));
+  const copy = { ...key }; // the same shape, another identity: what a copy-with-update in the core produces
+  assert.throws(() => receipts.read(copy), /fenced: a value the shell did not mint/);
+  assert.throws(() => receipts.read({}), /did not mint/);
 });

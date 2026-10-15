@@ -1,9 +1,13 @@
 # fp-shapes
 
-Shapes for an enforcement-grade functional TypeScript domain: decisions are
-data, made once at the boundary; every consumer folds; only an owner can
-pronounce a verdict; possession of a value proves how it was obtained; and
-every gate has a test that fails the build when the gate opens.
+Shapes for an enforcement-grade functional domain: decisions are data, made
+once at the boundary; every consumer folds; only an owner can pronounce a
+verdict; possession of a value proves how it was obtained; and every gate
+has a test that fails the build when the gate opens. The domain core is
+written in Koka, where exhaustive matches, effect rows and nominal types
+are the compiler's to refuse; the shell around it (the boundary, the
+effects, the interpreter) is TypeScript held by the lint tiers, the kernel
+and the gates, and the FFI between them is generated from the core.
 
 The library is `src/`. Vendor that directory with `eslint.config.js`,
 `scripts/`, `fixtures/` and `tsconfig.json`, import from `src/index.ts`, and
@@ -16,10 +20,14 @@ part of the library.
 
 ```
 npm ci
-npm run check        # tsc, lint, rule fixtures, rule coverage, no .d.ts, mutations, tests
+npm run koka:install # Koka 3.2.9 under .koka-prefix/, once
+npm run check        # koka build, tsc, lint, rule fixtures, rule coverage, no .d.ts, mutations, koka gate and mutations, tests
 ```
 
-Node 22, TypeScript 5.9, zod 4, ESLint 9, from the lockfile. The tests run
+Node 22, TypeScript 5.9, zod 4, ESLint 9, from the lockfile; Koka 3.2.9,
+pinned in each core's `koka.json` and installed by the official release
+script into `.koka-prefix/` (or set `KOKA` to a compiler of that version).
+The build refuses any other version. The tests run
 under `tsx`, which opens a Unix socket under `TMPDIR`; on a deep temp path
 that exceeds the socket path limit, run with a short one (`TMPDIR=/tmp`).
 
@@ -110,12 +118,67 @@ file outside the copied directories names a file the scratch tree lacks).
 `SPEC.md` states what "accepted by fp-shapes" means as the rules a checker
 enforces (exact facts preserved through every step, `fold` as the one
 eliminator, domain functions with no effects, linear evidence consumed
-exactly once) and the contracts the kernel keeps, and says which rules the
-tiers and gates hold today and which the checker will. `GUARANTEES.md` is
-the reviewer's map: each anti-pattern, the mechanism that refuses it, the
-gate, mutation, fixture or test that shows the mechanism works, where zod
-sits in the trusted base, and what is still open. The command algebra and
-the checker are built against the contract, in that order.
+exactly once) and the contracts the kernel keeps, and says which rules
+hold today and how. Since 0.6 the checker of the core is the Koka compiler
+and a token gate; the one rule not yet static is linearity, which the
+shell holds at runtime (§4). `GUARANTEES.md` is the reviewer's map: each
+anti-pattern, the mechanism that refuses it, the gate, mutation, fixture
+or test that shows the mechanism works, where zod sits in the trusted
+base, and what is still open.
+
+## The core, in Koka
+
+A core is a directory of `.kk` modules with a `koka.json` beside them
+(`examples/ingest/core/` is the one here). Facts are structs, outcomes are
+closed sums, evidence is an `abstract struct` the core can neither build,
+match nor read, and the plane's command algebra is one `effect` with a
+`ctl` operation per command. An attempt is a function whose row is that
+effect and nothing else:
+
+```koka
+pub effect shell
+  ctl claim(file-id: string): claim-outcome
+  ctl fence(c: claim, bytes: int): fence-outcome
+  ctl finalize(f: fenced-receipt): finalize-outcome
+
+pub fun ingest(file-id: string): shell ingest-status
+  match claim(file-id)
+    Claimed(c) -> transfer-stage(c, ...)
+    ClaimDied(d) -> WorkerDied(d)
+```
+
+A match that misses a case, a print, a recursive call, a thrown value, a
+field a type lacks, a receipt built or read inside the core: each is a
+compile error, and `examples/ingest/core/mutations.mjs` holds one of each
+for `check:koka` to run. What the compiler leaves open under a `total`
+row (`extern`, `unsafe-*`, `pretend-*`, `trace`, `var`, `ref`, handlers,
+the unsafe and os modules) the gate in `scripts/koka-gate.mjs` refuses by
+token over the core's import closure, with a fixture per refusal under
+`fixtures/koka/`.
+
+`scripts/koka-build.mjs` runs the gate, compiles the core (JavaScript
+backend), and generates the rest from the compiler's interface files:
+
+- `.build/<core>_bridge.kk`: a `step` type with one suspension per
+  operation, each carrying the operation's arguments and a resumption
+  that takes that operation's outcome and no other, and `start`, which
+  runs the attempt under the handler that suspends;
+- `.build/*.d.ts`: the compiled modules' surface, every type opaque, so a
+  literal is never a value of a core type;
+- `boundary/<core>.ffi.ts`: a schema per type that crosses in, parsed
+  every time it does; conversions in (parse, construct, freeze) and out
+  (fold into a frozen Variant); receipts minted into a registry and read
+  back by identity, so a value the shell did not mint halts the attempt;
+  resumptions and receipts spent once;
+- `effects/<core>.drive.ts`: the interpreter, `drive(fx)(args)`: it folds
+  the step, performs each command through the `Effects` record, resumes
+  the core with the outcome, and returns the status with the ledger.
+
+The generated TypeScript is committed and linted under the boundary and
+effects tiers like anything else; `koka:check` fails when it differs
+from what the core generates. The FFI carries `string`, `int` (a safe
+integer), `bool`, `vector<T>` and the core's own types, and refuses the
+rest by name with what to use instead.
 
 ## Adopting in an existing codebase
 
@@ -321,31 +384,40 @@ claim, finalizes and settles it, rewritten from code that decided
 everything after erasing its evidence (a failure's type thrown away and
 recovered with `instanceof` and a message match; a finalizer's cause
 travelling through `ok: boolean` and a re-throw; a lost fence as a caught
-class; the row's state as four early returns).
+class; the row's state as four early returns). The core is Koka; the
+shell is TypeScript.
 
-- `worker.ts` is the domain: one fold per effect outcome, no conditional,
-  no `try`, no view inside a receipt. It is parametric in the lock and the
-  three receipts (claim, fenced write, finalized file), so it threads them
-  and cannot inspect or mint them; the order of the pipeline is in the
-  signatures of `contract.ts` (`finalize` takes what only `fence` issues,
-  `settle` what only `finalize` issues).
-- `status.ts` splits the causes into the one the queue clears by running
-  again and the ones a holder records; transience is a property of a case,
-  decided where the case is produced, so no consumer asks a predicate.
-- `boundary/target.ts` reads the stored row once: gone, settled, abandoned
-  (the dead-man's switch is the parse that establishes a located row
-  failing), foreign plane, or ready with branded `uri` and `destKey`.
-- `effects/adapt.ts` turns each foreign call into an effect that settles to
-  a case and mints the sealed receipts. The reflection lives here, once per
-  foreign API: a guard class is the `revoked` case, a deadline class is the
-  `deadline` case, the egress proxy's message is read from the fetch error
-  only, a finalizer's `ok: false` carries its cause whole.
-  `effects/foreign.ts` describes the foreign modules as they are;
-  `effects/run.ts` is the entry point: real effects, one log line from a
-  fold, the transfer cleared in `finally`.
-- `worker.test.ts` runs every path with a scripted fake of the effects (16
-  paths, no database, no rclone); `adapt.test.ts` hands the adapters a fake
-  of the foreign modules that throws and returns the way the real ones do.
+- `core/ingest.kk` is the domain: every outcome a closed sum, one match
+  per answer, the attempt's row exactly the `shell` effect. `core/evidence.kk`
+  holds the receipts as abstract structs, so `finalize` can only be
+  reached with what `fence` issued and `settle` with what `finalize`
+  issued; the order of the pipeline is in the types, and the core cannot
+  mint, match or read a receipt. `core/mutations.mjs` lists nineteen
+  loosenings and which check refuses each: the compiler, the gate, the
+  typecheck over the regenerated surface, or the tests.
+- `boundary/ingest.ffi.ts` and `effects/ingest.drive.ts` are generated
+  from the core; `boundary/target.ts` reads the stored row once into the
+  core's target outcome: gone, settled, abandoned (the dead-man's switch
+  is the parse that establishes a located row failing), foreign plane, or
+  ready.
+- `effects/adapt.ts` turns each foreign call into the outcome the core
+  asked for and mints the receipts as records. The reflection lives here,
+  once per foreign API: a guard class is the `fence_revoked` case, a
+  deadline class is the `deadline` case, the egress proxy's message is
+  read from the fetch error only, a finalizer's `ok: false` carries its
+  cause whole. `effects/foreign.ts` describes the foreign modules as they
+  are; `effects/run.ts` is the entry point: real effects, the core driven
+  through them, one log line from a fold, the ledger returned, the
+  transfer cleared in `finally`.
+- `report.ts` is shell-side domain code under the tiers: two folds over
+  the status the FFI reads out, so a case added in the core fails to
+  compile here until this file says what it means.
+- `drive.test.ts` runs every path with a scripted fake of the effects and
+  reads back the ledger; `ffi.test.ts` holds the FFI's own guarantees (a
+  value parsed, copied and frozen on the way in; frozen on the way out; a
+  step resumed once; a halt that names the field); `adapt.test.ts` hands
+  the adapters a fake of the foreign modules that throws and returns the
+  way the real ones do.
 
 Making the cases explicit surfaced three behaviours of the original worth a
 decision: a failed cause-record threw to the caller although the contract
