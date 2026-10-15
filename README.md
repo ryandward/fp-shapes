@@ -105,6 +105,33 @@ application's list names every directory its staged program reads,
 declarations included, and the tsconfig stands alone (one that `extends` a
 file outside the copied directories names a file the scratch tree lacks).
 
+## Adopting in an existing codebase
+
+An integration is measured by what it deletes. The shapes change nothing in
+a codebase that keeps its decisions where they were and reaches them through
+adapters; that is an island, and it adds code. The order that has worked:
+
+1. Start at the module that owns the state machine, the writes that move a
+   lifecycle. Its transitions are a map, its states are sealed under its
+   authority, and every write takes the sealed state as its fence.
+2. Parse every row that module reads with `boundary()`, ORM entities
+   included. An entity type is a declaration, not evidence; what the
+   database returns is `unknown`.
+3. Gate every fact (`Assert<Total<F>>`, `Assert<Immutable<F>>`) and every map
+   that mirrors a shared union (`KindsOf`), with a mutation per gate.
+4. Make each owner's decision a `Decide` under an authority private to its
+   module, and have the writer take the sealed verdict and nothing else.
+5. Delete the function the seam replaced and the wrapper that translated to
+   it in the same seam, not at the end.
+
+A module of the repository is not a foreign surface. Foreign is
+`node_modules`, the database driver, the queue: code described as it is
+because it cannot change. A module of your own that decides is rewritten in
+the shapes or deleted; wrapped, it keeps its decisions. A seam is done when
+the touched modules hold no `if`, `switch`, `throw`, null check, `as` or `!`
+outside `boundary/` and `effects/`, their line count went down, and the
+replaced symbol has no references left.
+
 ## The library
 
 | Shape | File | Pins | Stands in for |

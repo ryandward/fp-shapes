@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1
+
+- README: "Adopting in an existing codebase". An integration is measured by
+  what it deletes; the order of seams; a module of the repository is not a
+  foreign surface.
+
 ## 0.5.0
 
 Evidence is held or spent, and facts compare structurally.
