@@ -36,4 +36,5 @@ export const mutations = [
   ],
   ['drop the readonly requirement from boundary', edit('src/boundary/boundary.ts', 'Immutable<z.output<S>> extends true ?', 'true extends true ?')],
   ['drop the total requirement from boundary', edit('src/boundary/boundary.ts', 'Total<z.output<S>> extends true ?', 'true extends true ?')],
+  ['let seal return anything', edit('src/boundary/boundary.ts', 'seal: (parsed: z.output<S>) => F & Fact<F>)', 'seal: (parsed: z.output<S>) => F)')],
 ];

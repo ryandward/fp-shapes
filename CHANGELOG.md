@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.8
+
+- `SPEC.md`: the contract. The checker's judgment (facts Γ, linear
+  evidence Δ, effects E), exactness as a flow rule, `fold` as the one
+  eliminator, effects as commands with the interpreter as the one
+  performer, linear evidence as dataflow with the interpreter's ledger on
+  the paths the static rule cannot see, the kernel's contract, and the
+  intended theorem; each rule marked held today or not yet enforced.
+- `boundary`: the `seal` callback's return is checked as a fact
+  (`Fact<F>`: total and readonly, plain or sealed) at the definition; an
+  unconstrained return was the one place a boundary could hand the domain
+  something that was not one. Two gates and a mutation; the schema gates
+  now pin the schema checks alone.
+
 ## 0.5.7
 
 Two of a reviewer's four bypass programs closed; the other two recorded.

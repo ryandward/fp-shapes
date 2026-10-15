@@ -1,6 +1,6 @@
 {
   "name": "fp-shapes",
-  "version": "0.5.7",
+  "version": "0.5.8",
   "private": true,
   "type": "module",
   "scripts": {
@@ -30,6 +30,7 @@
     "fixtures",
     "scripts",
     "README.md",
+    "SPEC.md",
     "CHANGELOG.md"
   ],
   "exports": {

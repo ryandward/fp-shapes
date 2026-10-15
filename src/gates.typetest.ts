@@ -78,11 +78,20 @@ export const nothing = occupancy([undefined]);
 
 // --- a boundary schema is total and readonly ----------------------------------
 
+// The schema and the seal are checked separately, so each gate's seal returns
+// a fact the other check accepts and only the check under test refuses it.
+
 // @ts-expect-error a boundary schema decides every absence (.default() or .nullable())
-export const sparse = boundary(z.object({ a: z.string().optional() }).readonly(), (x) => x);
+export const sparse = boundary(z.object({ a: z.string().optional() }).readonly(), (x): { readonly a: string } => ({ a: x.a ?? '' }));
 
 // @ts-expect-error a boundary schema declares .readonly()
-export const mutable = boundary(z.object({ a: z.string() }), (x) => x);
+export const mutable = boundary(z.object({ a: z.string() }), (x): { readonly a: string } => ({ a: x.a }));
+
+// @ts-expect-error what seal makes of the parsed value is a total fact
+export const sparseSeal = boundary(z.object({ a: z.string() }).readonly(), (x): { readonly a?: string } => x);
+
+// @ts-expect-error what seal makes of the parsed value is a readonly fact
+export const mutableSeal = boundary(z.object({ a: z.string() }).readonly(), (x): { a: string } => ({ a: x.a }));
 
 // @ts-expect-error a boundary schema's output nests through at most four containers
 export const nested = boundary(z.object({ a: z.object({ b: z.object({ c: z.array(z.object({ d: z.string() }).readonly()).readonly() }).readonly() }).readonly() }).readonly(), (x) => x);

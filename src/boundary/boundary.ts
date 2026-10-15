@@ -51,8 +51,17 @@ const issuesOf = (error: z.ZodError): NonEmpty<Issue> => {
   return first === undefined ? [{ path: '', message: 'invalid input' }] : [first, ...rest];
 };
 
+// What the owner makes of the parsed value is a fact too: total and readonly,
+// plain or sealed. The callback's return is checked where it is written.
+export type Fact<F> =
+  Total<F> extends true ?
+    Immutable<F> extends true ?
+      unknown
+    : Needs<'a readonly fact from seal: every property readonly, every array a ReadonlyArray'>
+  : Needs<'a total fact from seal: no optional, undefined, unknown, any, function or open object'>;
+
 export const boundary =
-  <S extends z.ZodType, F>(schema: S & TotalSchema<S>, seal: (parsed: z.output<S>) => F): Boundary<F> =>
+  <S extends z.ZodType, F>(schema: S & TotalSchema<S>, seal: (parsed: z.output<S>) => F & Fact<F>): Boundary<F> =>
   (raw) => {
     const result = schema.safeParse(raw);
     return result.success ?

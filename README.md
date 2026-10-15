@@ -105,6 +105,15 @@ application's list names every directory its staged program reads,
 declarations included, and the tsconfig stands alone (one that `extends` a
 file outside the copied directories names a file the scratch tree lacks).
 
+## The contract
+
+`SPEC.md` states what "accepted by fp-shapes" means as the rules a checker
+enforces (exact facts preserved through every step, `fold` as the one
+eliminator, domain functions with no effects, linear evidence consumed
+exactly once) and the contracts the kernel keeps, and says which rules the
+tiers and gates hold today and which the checker will. The command algebra
+and the checker are built against it, in that order.
+
 ## Adopting in an existing codebase
 
 An integration is measured by what it deletes. The shapes change nothing in
@@ -168,7 +177,7 @@ settings make it so, with the tools already in the tree:
 | `Total<T>` | `src/total.ts` | completeness: no `?:`, `undefined`, `unknown`, `any`, `never`, function, index signature, `Date`, or open object (`{}`, `object`); exclusion keys (`k?: never`) are not holes; a type that contains its own kind answers `Recursive<T>` and one that nests past four containers answers `Deep<T>`, each naming the property; a sealed value is read through to its payload, so sealing a shape does not hide it | trusting `z.output` to be complete |
 | `Immutable<T>` | `src/total.ts` | every property readonly, every array a `ReadonlyArray`, all the way down; recursion answers `Recursive<T>`, depth `Deep<T>` | mutable schema outputs |
 | `Exact<A, B>` | `src/total.ts` | correspondence: both total, same keys, mutually assignable | a key-set comparison at one level |
-| `Boundary<F>`, `Parse<F>`, `boundary`, `TotalSchema` | `src/boundary/boundary.ts` | the only shape that accepts `unknown`; a boundary schema has a total, readonly output, checked at the definition | ad-hoc parsing; `JSON.parse as T`; per-schema assertions |
+| `Boundary<F>`, `Parse<F>`, `boundary`, `TotalSchema`, `Fact` | `src/boundary/boundary.ts` | the only shape that accepts `unknown`; a boundary schema has a total, readonly output, and what `seal` makes of it is a total, readonly fact, both checked at the definition | ad-hoc parsing; `JSON.parse as T`; per-schema assertions |
 | `Outcome<T>`, `Tried<T>`, `attempt` | `src/effects/attempt.ts` | the one `try`; a thrown value becomes a case at the effect boundary. `attempt` is imported from this file by effects modules; the index carries the types | `try` in the domain; `void` effects |
 | `Assert`, `Equal` | `src/total.ts` | compile-time assertions | — |
 
@@ -273,7 +282,7 @@ subject to a rule.
 and the tests; lint; 134 rule fixtures (104 for the domain and primitives
 tiers, 15 for the boundary tier, 13 for the effects and foreign tiers, 2
 for the ETL example), every one of the 87 rules proved by one; no `.d.ts`
-under `src`; 28 mutations (19 against the library's gates, 9 against the
+under `src`; 29 mutations (20 against the library's gates, 9 against the
 examples'); 56 runtime tests.
 
 ## Examples
