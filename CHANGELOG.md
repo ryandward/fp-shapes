@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.9
+
+- Lint: `Symbol.for` and `Symbol.keyFor` are refused in every tier but
+  foreign. A `unique symbol` declared from the registry is an authority
+  anyone can look up by its string; an authority is minted with `Symbol(…)`.
+
 ## 0.4.8
 
 A fact is shallow.

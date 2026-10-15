@@ -87,6 +87,10 @@ const rules = {
     rule("CallExpression[callee.name='structuredClone']", 'copy with spread; a Sealed value comes only from its owner'),
     rule("MemberExpression[object.name='JSON'][property.name='parse'], MemberExpression[object.name='JSON'][property.value='parse']", 'text is decoded in effects/ under attempt; unknown enters through a Boundary (src/boundary) and leaves as a fact'),
     rule("MemberExpression[computed=true][property.type='TemplateLiteral']", 'read a field by its name; a key is a name or a string'),
+    rule(
+      "MemberExpression[object.name='Symbol'][property.name=/^(for|keyFor)$/], MemberExpression[object.name='Symbol'][property.value=/^(for|keyFor)$/]",
+      'an authority is minted by its owner with Symbol(…); a registry symbol is anyone who knows the string',
+    ),
   ],
   // An effect is performed in effects/ and reaches the domain as a parameter
   // or as the fact it produced. What the domain imports from an effects module
