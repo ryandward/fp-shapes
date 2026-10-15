@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.2
+
+- `examples/fulfil/`: a second core, unrelated to ingest, with nested
+  structs and sums, vectors of them in both directions, a struct entry
+  argument and its own command family; the generator's generality check.
+  Two generator fixes came out of it: a field list was split at the `>`
+  of an arrow inside a kind annotation (`(vector :: V -> V)<string>`),
+  and the output directories were not created.
+- The interpreter halts, rather than throws, when an entry argument is
+  refused by its schema: a halted run with an empty ledger and nothing
+  outstanding, as any other halt.
+- `koka:build`, `koka:check` and `check:koka` cover both cores.
+
 ## 0.6.1
 
 The 0.6 boundary finished: the one door, the ownership audit, the

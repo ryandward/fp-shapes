@@ -1,0 +1,10 @@
+{
+  "koka": "3.2.9",
+  "core": "fulfil",
+  "entry": "fulfil",
+  "modules": ["evidence", "fulfil"],
+  "build": ".build",
+  "ffi": "../boundary/fulfil.ffi.ts",
+  "drive": "../effects/fulfil.drive.ts",
+  "lib": "../../../src"
+}

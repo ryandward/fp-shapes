@@ -26,7 +26,7 @@
 //
 // Run by scripts/koka-build.mjs between the two compilations.
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 
 // ---------------------------------------------------------------- names
@@ -129,6 +129,10 @@ const splitTop = (text) => {
   let start = 0;
   for (let i = 0; i < text.length; i += 1) {
     const c = text[i];
+    if (c === '-' && text[i + 1] === '>') {
+      i += 1; // an arrow, not a closing angle
+      continue;
+    }
     if (c === '(' || c === '<') depth += 1;
     if (c === ')' || c === '>') depth -= 1;
     if (c === ',' && depth === 0) {
@@ -717,8 +721,13 @@ const driveTs = (model, ffiPath, outPath) => {
   lines.push(`export const drive =`);
   lines.push(`  (fx: Effects) =>`);
   lines.push(`  (${entry.params.map((p) => `${camel(p.name)}: ${valueType(p.type)}`).join(', ')}): Promise<Variant<Run>> => {`);
-  lines.push(`    const attempt = begin(${entry.params.map((p) => camel(p.name)).join(', ')});`);
   lines.push(`    const noted = ledger<Variant<Entry>>();`);
+  lines.push(`    const halted = (thrown: unknown, outstanding: ReadonlyArray<Variant<Outstanding>>): Variant<Run> => ({`);
+  lines.push(`      kind: 'halted',`);
+  lines.push(`      error: thrown instanceof Error ? thrown : new Error(String(thrown)),`);
+  lines.push(`      ledger: noted.entries(),`);
+  lines.push(`      outstanding,`);
+  lines.push(`    });`);
   lines.push(`    const loop = (step: Variant<Step>): Promise<Variant<Run>> =>`);
   lines.push(`      fold<Step, Promise<Variant<Run>>>({`);
   lines.push(`        done: ({ status, outstanding }) => Promise.resolve({ kind: 'finished', status, ledger: noted.entries(), outstanding }),`);
@@ -733,12 +742,14 @@ const driveTs = (model, ffiPath, outPath) => {
     lines.push(`          }),`);
   }
   lines.push(`      })(step);`);
-  lines.push(`    return loop(attempt.first).catch((thrown: unknown) => ({`);
-  lines.push(`      kind: 'halted',`);
-  lines.push(`      error: thrown instanceof Error ? thrown : new Error(String(thrown)),`);
-  lines.push(`      ledger: noted.entries(),`);
-  lines.push(`      outstanding: attempt.outstanding(),`);
-  lines.push(`    }));`);
+  lines.push(`    // An argument the schema refuses halts before anything is issued; a throw`);
+  lines.push(`    // later halts with what was issued and not spent at that point.`);
+  lines.push(`    return Promise.resolve()`);
+  lines.push(`      .then(() => {`);
+  lines.push(`        const attempt = begin(${entry.params.map((p) => camel(p.name)).join(', ')});`);
+  lines.push(`        return loop(attempt.first).catch((thrown: unknown) => halted(thrown, attempt.outstanding()));`);
+  lines.push(`      })`);
+  lines.push(`      .catch((thrown: unknown) => halted(thrown, []));`);
   lines.push(`  };`);
   lines.push('');
   return lines.join('\n');
@@ -759,6 +770,8 @@ export const generate = (configPath, phase) => {
   writeFileSync(join(build, `${fileName(bridge.name)}.d.ts`), dtsOf(model, bridge.name, bridge));
   const ffiPath = resolve(config.dir, config.ffi);
   const drivePath = resolve(config.dir, config.drive);
+  mkdirSync(dirname(ffiPath), { recursive: true });
+  mkdirSync(dirname(drivePath), { recursive: true });
   writeFileSync(ffiPath, ffiTs(model, bridge, ffiPath));
   writeFileSync(drivePath, driveTs(model, ffiPath, drivePath));
   return { bridge: bridge.name, ffi: ffiPath, drive: drivePath };

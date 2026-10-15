@@ -44,8 +44,13 @@ export type Run = {
 export const drive =
   (fx: Effects) =>
   (fileId: string): Promise<Variant<Run>> => {
-    const attempt = begin(fileId);
     const noted = ledger<Variant<Entry>>();
+    const halted = (thrown: unknown, outstanding: ReadonlyArray<Variant<Outstanding>>): Variant<Run> => ({
+      kind: 'halted',
+      error: thrown instanceof Error ? thrown : new Error(String(thrown)),
+      ledger: noted.entries(),
+      outstanding,
+    });
     const loop = (step: Variant<Step>): Promise<Variant<Run>> =>
       fold<Step, Promise<Variant<Run>>>({
         done: ({ status, outstanding }) => Promise.resolve({ kind: 'finished', status, ledger: noted.entries(), outstanding }),
@@ -98,10 +103,12 @@ export const drive =
             return loop(next);
           }),
       })(step);
-    return loop(attempt.first).catch((thrown: unknown) => ({
-      kind: 'halted',
-      error: thrown instanceof Error ? thrown : new Error(String(thrown)),
-      ledger: noted.entries(),
-      outstanding: attempt.outstanding(),
-    }));
+    // An argument the schema refuses halts before anything is issued; a throw
+    // later halts with what was issued and not spent at that point.
+    return Promise.resolve()
+      .then(() => {
+        const attempt = begin(fileId);
+        return loop(attempt.first).catch((thrown: unknown) => halted(thrown, attempt.outstanding()));
+      })
+      .catch((thrown: unknown) => halted(thrown, []));
   };

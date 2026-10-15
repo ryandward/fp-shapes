@@ -1,14 +1,14 @@
 {
   "name": "fp-shapes",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "private": true,
   "type": "module",
   "scripts": {
     "check": "npm run koka:build && npm run koka:check && npm run typecheck && npm run lint && npm run lint:fixtures && npm run check:rules && npm run check:dts && npm run check:gates && npm run check:koka && npm test",
     "koka:install": "sh scripts/koka-install.sh",
-    "koka:build": "node scripts/koka-build.mjs examples/ingest/core/koka.json",
-    "koka:check": "git diff --exit-code -- examples/ingest/boundary/ingest.ffi.ts examples/ingest/effects/ingest.drive.ts || (echo 'the FFI is generated from the core; commit what koka:build wrote' && exit 1)",
-    "check:koka": "node scripts/koka-gate.mjs --fixtures fixtures/koka && node scripts/koka-mutations.mjs examples/ingest/core/mutations.mjs",
+    "koka:build": "node scripts/koka-build.mjs examples/ingest/core/koka.json examples/fulfil/core/koka.json",
+    "koka:check": "git diff --exit-code -- examples/ingest/boundary/ingest.ffi.ts examples/ingest/effects/ingest.drive.ts examples/fulfil/boundary/fulfil.ffi.ts examples/fulfil/effects/fulfil.drive.ts || (echo 'the FFI is generated from the core; commit what koka:build wrote' && exit 1)",
+    "check:koka": "node scripts/koka-gate.mjs --fixtures fixtures/koka && node scripts/koka-mutations.mjs examples/ingest/core/mutations.mjs examples/fulfil/core/mutations.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "check:gates": "node scripts/mutations.mjs src/gates.mutations.mjs examples/etl/gates.mutations.mjs examples/ingest/gates.mutations.mjs",
     "lint": "eslint src && eslint -c eslint.examples.js --ignore-pattern '**/fixtures/**' --ignore-pattern '**/.build/**' examples",

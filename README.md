@@ -442,6 +442,20 @@ egress-refusal match ran on every error message, including a database
 error's. The rewrite returns `worker_died`, `claim_revoked`, and reads the
 match from the fetch error only, and the tests pin each.
 
+**`examples/fulfil/`**: a second core, unrelated to ingest, kept as the
+generator's generality check: an order is a struct holding a vector of
+structs and a nested struct with a vector of strings; a reservation
+answers with a receipt and a vector of allocations, each a struct holding
+a struct and a sum; the status carries vectors back out; the hold is
+spent by `ship` or by `release` on every path. `core/fulfil.kk` is 70
+lines, the shell is the generated FFI and interpreter plus
+`drive.test.ts`, and `core/mutations.mjs` holds six loosenings (a ship
+without a hold and a dropped match arm for the compiler, a status the
+shell has no sample of for the typecheck, a hold kept, released twice
+and copied for the tests). Building it took two generator fixes (an
+arrow inside a kind annotation read as a closing angle; output
+directories not created) and no change to the shell's rules.
+
 ## When a check fails
 
 A failing check is a statement about the model, and the model is what
