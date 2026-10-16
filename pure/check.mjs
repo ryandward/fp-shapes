@@ -18,7 +18,7 @@
 // Exits 1 if anything is reported. Built on TypeScript 7's API
 // (`typescript/unstable/*`); the package pins TypeScript exactly.
 
-import { API } from 'typescript/unstable/sync';
+import { API, SymbolFlags, TypeFlags } from 'typescript/unstable/sync';
 import { NodeFlags, SyntaxKind } from 'typescript/unstable/ast';
 import { tokenToString } from 'typescript/unstable/ast/scanner';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -27,6 +27,11 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const pureLib = resolve(dirname(fileURLToPath(import.meta.url)), 'lib.d.ts');
+
+// The installed library's declarations. Every file compiled into a pure
+// project is a project file, the pure standard library, or one of these.
+const libraryDist = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
+const inLibrary = (file) => resolve(file).startsWith(libraryDist + '/');
 
 const enforced = {
   noLib: true,
@@ -121,12 +126,23 @@ const inspect = (project, roots, configPath) => {
   for (const d of program.getSyntacticDiagnostics()) at(d.fileName, d.pos, d.text, 'syntax');
   for (const d of [...program.getProgramDiagnostics(), ...program.getSemanticDiagnostics()]) at(d.fileName, d.pos, d.text, 'compiler');
 
-  // Imports come from the pure entry of the library or from the project.
+  // The program is closed: every file the compiler loaded is a project file,
+  // the pure standard library, or the installed library. A file loaded any
+  // other way (a `paths` alias, a module suffix, a types entry) was never
+  // checked, so it is refused rather than trusted.
+  for (const fileName of program.getSourceFileNames()) {
+    const file = resolve(fileName);
+    if (!roots.has(file) && file !== pureLib && !inLibrary(file))
+      problems.push({ file: configPath, line: 1, column: 1, message: `Not in L: ${file} is compiled into the project but is neither one of its files nor fp-shapes.`, source: 'L' });
+  }
+
+  // Imports come from the pure entry of the installed library or from the project.
   const allowedImport = (specifier) => {
     if (specifier.kind !== SyntaxKind.StringLiteral) return false;
-    if (specifier.text === PURE_ENTRY) return true;
     const declaration = checker.getSymbolAtLocation(specifier)?.declarations?.[0];
-    return declaration !== undefined && roots.has(resolve(declaration.path));
+    if (declaration === undefined) return false;
+    if (specifier.text === PURE_ENTRY) return inLibrary(declaration.path);
+    return roots.has(resolve(declaration.path));
   };
   const moduleSpecifier = (node) => {
     if (node.moduleSpecifier !== undefined && !allowedImport(node.moduleSpecifier))
@@ -145,6 +161,40 @@ const inspect = (project, roots, configPath) => {
     const file = resolve(declaration.path);
     if (file === pureLib) return fromPureLib.has(symbol.name);
     return true;
+  };
+
+  // ------------------------------------------------------------ semantic helpers
+
+  const members = (t) => (t.flags & (TypeFlags.Union | TypeFlags.Intersection) ? t.getTypes() : [t]);
+  const mayBeAbsent = (t) => members(t).some((m) => (m.flags & (TypeFlags.Undefined | TypeFlags.Null | TypeFlags.Void)) !== 0);
+  const isPrimitive = (t) => members(t).every((m) => (m.flags & (TypeFlags.StringLike | TypeFlags.NumberLike | TypeFlags.BooleanLike)) !== 0);
+
+  // Deeply readonly data: what a module may hold, since a module-level value is
+  // shared by every caller. A property is readonly when declared so or when it
+  // came from `as const` (checkFlags bit 8). Functions are values, not state.
+  const READONLY_CHECK_FLAG = 8;
+  const readonlyProperty = (p) =>
+    (p.checkFlags & READONLY_CHECK_FLAG) !== 0 ||
+    p.declarations.some((h) => h.resolve(project)?.modifiers?.some((m) => m.kind === SyntaxKind.ReadonlyKeyword) === true);
+  const isDeepReadonly = (t, seen = new Set()) => {
+    if (seen.has(t.id)) return true;
+    seen.add(t.id);
+    if (t.flags & (TypeFlags.Union | TypeFlags.Intersection)) return t.getTypes().every((m) => isDeepReadonly(m, seen));
+    if (!(t.flags & TypeFlags.Object)) return true;
+    if (checker.isArrayType(t) || checker.isTupleType(t))
+      return checker.typeToString(t).startsWith('readonly ') && checker.getTypeArguments(t).every((m) => isDeepReadonly(m, seen));
+    if (checker.getSignaturesOfType(t, 0).length > 0) return true;
+    return checker.getPropertiesOfType(t).every((p) => readonlyProperty(p) && isDeepReadonly(checker.getTypeOfSymbol(p), seen));
+  };
+
+  // The bindings of the project and what each one refers to, for the recursion
+  // check: nothing in L reaches itself.
+  const functions = new Map(); // symbol id -> { name, node, refers: Set<symbol id> }
+  let within = undefined; // the function binding whose body is being walked
+  const target = (symbol) => (symbol !== undefined && (symbol.flags & SymbolFlags.Alias) !== 0 ? checker.getAliasedSymbol(symbol) : symbol);
+  const refer = (symbol) => {
+    const resolved = target(symbol);
+    if (within !== undefined && resolved !== undefined) within.refers.add(resolved.id);
   };
 
   const modifiersOnly = (node, allowed) => node.modifiers?.forEach((m) => allowed.has(m.kind) || notInL(m, `the ${readable(m.kind)} modifier`));
@@ -227,14 +277,18 @@ const inspect = (project, roots, configPath) => {
     binding(p.name);
     if (p.type !== undefined) type(p.type);
   };
-  const binding = (name) => {
-    if (name.kind === SyntaxKind.Identifier) return;
+  const binding = (name, inArray = false) => {
+    if (name.kind === SyntaxKind.Identifier) {
+      // An array element past the known length is undefined at runtime.
+      if (inArray && mayBeAbsent(checker.getTypeAtLocation(name))) notInL(name, 'a destructured element that may be absent; destructure a tuple of known length');
+      return;
+    }
     if (name.kind === SyntaxKind.ObjectBindingPattern || name.kind === SyntaxKind.ArrayBindingPattern)
       return name.elements.forEach((e) => {
         if (e.kind === SyntaxKind.OmittedExpression) return;
         if (e.initializer !== undefined) return notInL(e, 'a default value in a pattern');
         if (e.propertyName?.kind === SyntaxKind.ComputedPropertyName) return notInL(e.propertyName, 'a computed property name');
-        binding(e.name);
+        binding(e.name, name.kind === SyntaxKind.ArrayBindingPattern);
       });
     notInL(name);
   };
@@ -242,17 +296,27 @@ const inspect = (project, roots, configPath) => {
   const expression = (node) => {
     if (literals.has(node.kind)) return;
     switch (node.kind) {
-      case SyntaxKind.Identifier:
+      case SyntaxKind.Identifier: {
         if (node.text === 'undefined') return notInL(node, 'undefined');
-        if (isTagSymbol(checker.getSymbolAtLocation(node))) return notInL(node, 'a declared tag used as a value; use typeof');
-        return;
+        const symbol = checker.getSymbolAtLocation(node);
+        if (isTagSymbol(symbol)) return notInL(node, 'a declared tag used as a value; use typeof');
+        return refer(symbol);
+      }
       case SyntaxKind.TemplateExpression:
-        return node.templateSpans.forEach((s) => expression(s.expression));
+        // A template calls toString on what it holds; only strings, numbers and
+        // booleans have no toString of the program's own.
+        return node.templateSpans.forEach((s) => {
+          if (!isPrimitive(checker.getTypeAtLocation(s.expression))) notInL(s.expression, 'a template part that is not a string, number or boolean');
+          expression(s.expression);
+        });
       case SyntaxKind.ParenthesizedExpression:
         return expression(node.expression);
       case SyntaxKind.ObjectLiteralExpression:
         return node.properties.forEach((p) => {
-          if (p.kind === SyntaxKind.ShorthandPropertyAssignment) return p.objectAssignmentInitializer === undefined ? expression(p.name) : notInL(p, 'a default value');
+          if (p.kind === SyntaxKind.ShorthandPropertyAssignment) {
+            if (p.objectAssignmentInitializer !== undefined) return notInL(p, 'a default value');
+            return refer(checker.getShorthandAssignmentValueSymbol(p));
+          }
           if (p.kind !== SyntaxKind.PropertyAssignment) return notInL(p, `${readable(p.kind)} in a record; a record lists its fields`);
           if (p.name.kind === SyntaxKind.ComputedPropertyName) return notInL(p.name, 'a computed property name');
           if (p.name.kind === SyntaxKind.Identifier && p.name.text === '__proto__') return notInL(p.name, '__proto__');
@@ -310,7 +374,7 @@ const inspect = (project, roots, configPath) => {
     if (statements.length === 0) notInL(node.body, 'an empty body; a function returns a value');
   };
 
-  const variables = (statement, allowedModifiers) => {
+  const variables = (statement, allowedModifiers, atTop = false) => {
     modifiersOnly(statement, allowedModifiers);
     const list = statement.declarationList;
     if ((list.flags & (NodeFlags.Let | NodeFlags.Const)) !== NodeFlags.Const) return notInL(list, `${(list.flags & NodeFlags.Let) !== 0 ? 'let' : 'var'}; bindings are const`);
@@ -319,7 +383,18 @@ const inspect = (project, roots, configPath) => {
       if (d.exclamationToken !== undefined) notInL(d, 'a definite-assignment assertion (!)');
       if (d.type !== undefined) type(d.type);
       if (d.initializer === undefined) return notInL(d, 'a binding without a value');
+      // A module-level value is shared by every caller, so it is deeply readonly.
+      if (atTop && !isDeepReadonly(checker.getTypeAtLocation(d.name))) notInL(d.name, 'a module-level value that is not deeply readonly');
+      // Every named binding is a node of the reference graph, whatever its value:
+      // a function can reach itself through a record field or an array as well.
+      const bound = d.name.kind === SyntaxKind.Identifier ? checker.getSymbolAtLocation(d.name) : undefined;
+      if (bound === undefined) return expression(d.initializer);
+      const entry = { name: d.name.text, node: d.name, refers: new Set() };
+      functions.set(bound.id, entry);
+      const outer = within;
+      within = entry;
       expression(d.initializer);
+      within = outer;
     });
   };
 
@@ -338,7 +413,7 @@ const inspect = (project, roots, configPath) => {
         return type(node.type);
       case SyntaxKind.VariableStatement:
         if (isTag(node)) return modifiersOnly(node, new Set([SyntaxKind.DeclareKeyword, SyntaxKind.ExportKeyword]));
-        return variables(node, exportModifier);
+        return variables(node, exportModifier, true);
       case SyntaxKind.EmptyStatement:
         return;
       default:
@@ -354,6 +429,54 @@ const inspect = (project, roots, configPath) => {
     for (const found of sourceFile.text.matchAll(/@ts-(ignore|expect-error|nocheck)/g)) at(sourceFile.fileName, found.index, `Not in L: a @ts-${found[1]} directive.`);
     sourceFile.statements.forEach(item);
   }
+
+  // Recursion: no function binding reaches itself through the bindings it refers to.
+  const reported = new Set();
+  const reach = (id, path) => {
+    const entry = functions.get(id);
+    if (entry === undefined) return;
+    if (path.includes(id)) {
+      const cycle = path.slice(path.indexOf(id));
+      if (!cycle.some((c) => reported.has(c))) {
+        cycle.forEach((c) => reported.add(c));
+        notInL(entry.node, `recursion (${[...cycle, id].map((c) => functions.get(c).name).join(' → ')})`);
+      }
+      return;
+    }
+    entry.refers.forEach((next) => reach(next, [...path, id]));
+  };
+  [...functions.keys()].forEach((id) => reach(id, []));
+
+  // Recursive types: a type alias may refer to itself only through data, never
+  // through a function type (μα. τ requires τ to be strictly positive).
+  const aliases = new Map(); // symbol id -> { name, node, edges: [{ to, viaFunction }] }
+  const aliasEdges = (node, viaFunction, edges) => {
+    if (node.kind === SyntaxKind.TypeReference) {
+      const symbol = target(checker.getSymbolAtLocation(node.typeName));
+      if (symbol !== undefined && (symbol.flags & SymbolFlags.TypeAlias) !== 0) edges.push({ to: symbol.id, viaFunction });
+    }
+    const inner = viaFunction || node.kind === SyntaxKind.FunctionType;
+    node.forEachChild((child) => {
+      aliasEdges(child, inner, edges);
+    });
+  };
+  for (const fileName of roots) {
+    const sourceFile = program.getSourceFile(fileName);
+    sourceFile?.statements.forEach((st) => {
+      if (st.kind !== SyntaxKind.TypeAliasDeclaration) return;
+      const symbol = checker.getSymbolAtLocation(st.name);
+      if (symbol === undefined) return;
+      const edges = [];
+      aliasEdges(st.type, false, edges);
+      aliases.set(symbol.id, { name: st.name.text, node: st.name, edges });
+    });
+  }
+  const negative = (start) => {
+    const visit = (id, crossed, seen) =>
+      (aliases.get(id)?.edges ?? []).some((e) => (e.to === start ? crossed || e.viaFunction : !seen.has(e.to) && visit(e.to, crossed || e.viaFunction, new Set([...seen, e.to]))));
+    return visit(start, false, new Set([start]));
+  };
+  aliases.forEach((a, id) => negative(id) && notInL(a.node, `a type that contains itself through a function (${a.name}); recursive types recur only through data`));
 
   return problems;
 };

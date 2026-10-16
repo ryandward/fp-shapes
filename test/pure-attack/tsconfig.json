@@ -1,0 +1,1 @@
+{ "extends": "../pure/tsconfig.json", "compilerOptions": { "paths": { "fp-shapes/pure": ["./evil.ts"] } } }

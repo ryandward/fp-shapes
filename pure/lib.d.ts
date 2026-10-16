@@ -3,6 +3,14 @@
 // that exist. Anything that performs an effect is absent: no Date,
 // Math.random, Promise, console, fetch, timers, process, JSON, Symbol(),
 // Object.assign, or array methods that change an array in place.
+//
+// What pure code can reach here is held to L: no member returns undefined or
+// null (so no `at` or `find`; use the library's Option-returning functions),
+// and no member throws on an argument its type admits. Exhausting memory (a
+// string too long to build, by + or padStart) is a resource limit of the
+// machine, like the stack, and is outside what L promises.
+// The utility types at the end exist for the library's own declarations;
+// fp-shapes-check refuses them in pure code.
 
 // ---------------------------------------------------------------- required by the compiler
 
@@ -23,22 +31,23 @@ interface TemplateStringsArray extends ReadonlyArray<string> {
 
 // ---------------------------------------------------------------- numbers and strings
 
+// Every member is total: an argument JavaScript would reject with a
+// RangeError (toFixed(200), toString(1), repeat(-1)) cannot be written.
+type Digits = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20;
 interface Number {
-  toFixed(digits?: number): string;
-  toString(radix?: number): string;
+  toFixed(digits: Digits): string;
+  toString(): string;
 }
 
 interface String {
   readonly length: number;
   readonly [index: number]: string;
-  at(index: number): string | undefined;
   concat(...strings: ReadonlyArray<string>): string;
   endsWith(search: string): boolean;
   includes(search: string): boolean;
   indexOf(search: string): number;
   padEnd(length: number, fill?: string): string;
   padStart(length: number, fill?: string): string;
-  repeat(count: number): string;
   replaceAll(search: string, replacement: string): string;
   slice(start?: number, end?: number): string;
   split(separator: string): string[];
@@ -67,12 +76,10 @@ declare const Math: Math;
 interface ReadonlyArray<T> {
   readonly length: number;
   readonly [index: number]: T;
-  at(index: number): T | undefined;
   concat(...items: ReadonlyArray<ReadonlyArray<T>>): T[];
   every(predicate: (value: T, index: number) => boolean): boolean;
   filter<S extends T>(predicate: (value: T, index: number) => value is S): S[];
   filter(predicate: (value: T, index: number) => boolean): T[];
-  find(predicate: (value: T, index: number) => boolean): T | undefined;
   findIndex(predicate: (value: T, index: number) => boolean): number;
   flatMap<U>(f: (value: T, index: number) => U | ReadonlyArray<U>): U[];
   includes(value: T): boolean;

@@ -111,6 +111,10 @@ For every accepted program:
   type.
 - **P3 No absence.** Every value inhabits its declared type. There is no `null`
   and no implicit failure.
+- **P3′ Resource limits.** Running out of memory or stack is outside these
+  properties, as in any language: a term that would build a string longer than
+  the engine allows fails. Every primitive is otherwise total on its declared
+  type.
 - **P4 Termination.** Every **L** term terminates. Structural recursion over
   finite data is strongly normalizing (Gödel's System T plus folds). Unbounded
   repetition exists only inside `Prog`, as bounded retry or interpreter-driven

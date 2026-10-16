@@ -49,3 +49,11 @@ test('the command exits 1 on bad code and 0 on good code, also through a symlink
   assert.equal(exitCode(project), 0);
   assert.equal(exitCode(badProject), 1);
 });
+
+test('a tsconfig cannot point fp-shapes/pure at an unchecked file', () => {
+  // test/pure-attack/tsconfig.json maps 'fp-shapes/pure' to evil.ts, which
+  // declares a working fetch. The import's name is allowed; the file is not.
+  const problems = check({ project: resolve('test/pure-attack/tsconfig.json'), files: [resolve('test/pure-attack/paths-alias.ts')] });
+  assert.ok(problems.some((p) => p.message.includes('evil.ts is compiled into the project but is neither')), problems.map((p) => p.message).join('\n'));
+  assert.ok(problems.some((p) => p.message.includes('Not in L: an import from outside')), problems.map((p) => p.message).join('\n'));
+});
