@@ -1,2 +1,2 @@
-// expect: Generators are stateful
-export function* f(): unknown { yield 1; }
+// expect: Not in L: function expression
+export const f = function* (): unknown { yield 1; };

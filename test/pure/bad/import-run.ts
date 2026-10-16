@@ -1,3 +1,3 @@
-// expect: Pure code imports only from
+// expect: Not in L: an import from outside
 import { run } from '../../../src/run.js';
 export const f = run;

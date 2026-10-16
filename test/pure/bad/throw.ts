@@ -1,2 +1,2 @@
-// expect: `throw` is a hidden exit
+// expect: Not in L: throw statement
 export const f = (): number => { throw 'no'; };

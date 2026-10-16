@@ -1,4 +1,6 @@
-export { match, bool, none, some, ok, err, nonEmpty } from './union.js';
+export { match, bool, none, some, ok, err, nonEmpty, head } from './union.js';
+export { compare, eq } from './order.js';
+export type { Ordering, OrderingCases } from './order.js';
 export type { Union, Handlers, BoolHandlers, Option, OptionCases, Result, ResultCases, NonEmptyArray } from './union.js';
 export { Opaque } from './opaque.js';
 export type { Use } from './opaque.js';
@@ -7,6 +9,6 @@ export type { IsComplete, IsDeepReadonly, Recursive, Equal, Expect } from './typ
 export { decoder } from './decode.js';
 export type { Decoder, Issue, CompleteSchema } from './decode.js';
 export { program } from './program.js';
-export type { Operation, Operations, Program, Continuations, Constructors } from './program.js';
+export type { Operation, Operations, Program, Continuations, Constructors, Held } from './program.js';
 export { run, tryCatch } from './run.js';
 export type { Interpreter, LogEntry, Outcome } from './run.js';

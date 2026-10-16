@@ -52,6 +52,10 @@ export type Operations = { readonly [name: string]: Operation };
 
 // ---------------------------------------------------------------- held resources
 
+// The set of resources held at a point in a program, by name. Held<never> holds
+// nothing; Held<'key'> holds the key.
+export type Held<R extends string> = { readonly [K in R]: true };
+
 type Releases<Ops extends Operations, K extends keyof Ops> = Ops[K]['releases'];
 
 type MustHold<Ops extends Operations, K extends keyof Ops> = { readonly [R in Releases<Ops, K>]: true };

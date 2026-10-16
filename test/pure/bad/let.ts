@@ -1,2 +1,2 @@
-// expect: `let` and `var` allow reassignment
+// expect: Not in L: let
 export const f = (): number => { let n = 1; return n; };

@@ -1,2 +1,2 @@
-// expect: Loops need mutation
+// expect: Not in L: for of statement
 export const f = (xs: ReadonlyArray<number>): number => { for (const x of xs) { return x; } return 0; };

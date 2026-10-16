@@ -33,7 +33,19 @@ Derived types: `Option τ = Σ{ none: {}, some: τ }` and
 **Data types** are the types containing no `→` and no `Prog`.
 
 **Absent from the grammar entirely:** `null`, `undefined`, optional fields,
-`unknown`, `any`, classes, `Promise`.
+`unknown`, `any`, `never`, `void`, `object`, `{}`, classes, `Promise`,
+intersection types, conditional and mapped types, and index signatures.
+
+**Amendments from the first probe run (§8):**
+
+- The unit type is a tagged record, never `{}` (which TypeScript lets `5` inhabit).
+- `μα. τ` is allowed only when `τ` is a data type (strictly positive):
+  `type Bad = (b: Bad) => number` is not in **L**.
+- Function-typed fields are written in property syntax only; method syntax is
+  not in **L** (TypeScript checks method parameters bivariantly).
+- `Opaque_t` is encoded as a wrapper (a class with private fields), never as an
+  intersection brand like `string & { brand }`.
+- Equality is the primitive `eq`, never `===`.
 
 ### 2.2 Terms
 
@@ -211,3 +223,23 @@ is a membership test, not a list of bans.
 3. Rebuild the checker as the membership test of §6. The current rules are
    kept only where they follow from the definition.
 4. Run a blind test on a real package.
+
+## 8. First probe run (TypeScript 7.0.2 and 5.9.3, identical results)
+
+Each probe encodes a piece of **L** in TypeScript and marks what **L** must reject.
+
+| Shape | Result | Consequence |
+|---|---|---|
+| 2 Record (closed) | tsc accepts a wider value through a variable | **R only**: needs the exactness check over variables |
+| 3 Union + match | missing case and extra inline branch rejected; extra branch via a variable accepted | **R only** for the variable case, same check as shape 2 |
+| 4 Unit as `{}` | `5` accepted | grammar: unit is a tagged record |
+| 4 Unit as tagged record | rejected | **R+E** |
+| 6/7 Indexing | `noUncheckedIndexedAccess` makes every read `\| undefined` | **R+E** (no way to use the result in **L**) |
+| 8 Negative μ | accepted | grammar restriction plus a check |
+| 9 Opaque as intersection brand | unwraps implicitly | encoding excluded |
+| 9 Opaque as wrapper | rejected | **R+E** |
+| 10 Once read twice | accepted | **I** for variables; linearity only through the `Prog` index |
+| 12 Method parameters | bivariant | grammar: property syntax only |
+| 14 Self-recursion | accepted | needs a reference-graph check |
+| 15 `===` on records | accepted | grammar: no `===`; `eq` provided |
+| 19 Indexed `Prog` with `bind` | leak, double acquire, release when not held, use after release all rejected, with and without explicit indices | **R+E**; error location is sometimes later than the cause |

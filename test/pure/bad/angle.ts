@@ -1,2 +1,2 @@
-// expect: A type assertion overrides the compiler
+// expect: Not in L: type assertion expression
 export const f = (x: unknown): string => <string>x;

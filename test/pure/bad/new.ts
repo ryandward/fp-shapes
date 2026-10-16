@@ -1,3 +1,3 @@
-// expect: `new` creates mutable objects
+// expect: Not in L: new expression
 function Box(this: { v: number }): void {}
 export const f = (): unknown => new (Box as unknown as new () => object)();

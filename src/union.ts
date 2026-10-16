@@ -59,3 +59,6 @@ export const nonEmpty = <A extends {} | null>(xs: ReadonlyArray<A>): Option<NonE
   const [head, ...tail] = xs;
   return head === undefined ? none : some<NonEmptyArray<A>>([head, ...tail]);
 };
+
+// The first element of a non-empty array.
+export const head = <A>(xs: NonEmptyArray<A>): A => xs[0];

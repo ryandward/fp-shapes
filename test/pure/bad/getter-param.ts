@@ -1,2 +1,2 @@
-// expect: A parameter cannot hold a function
+// expect: Not in L: get accessor
 export const f = (deps: { get now(): number }): number => deps.now;

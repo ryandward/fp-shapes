@@ -11,7 +11,7 @@ const project = resolve('test/pure/tsconfig.json');
 const good = readdirSync('test/pure/good').map((f) => resolve('test/pure/good', f));
 const bad = readdirSync('test/pure/bad').filter((f) => f.endsWith('.ts')).sort();
 
-test('good pure code passes', () => {
+test('good pure code is in L', () => {
   assert.deepEqual(check({ project, files: good }).map((p) => `${p.file}:${p.line} ${p.message}`), []);
 });
 
@@ -20,7 +20,10 @@ for (const name of bad) {
     const file = join('test/pure/bad', name);
     const expected = readFileSync(file, 'utf8').match(/^\/\/ expect: (.+)$/m)?.[1];
     assert.ok(expected, `${name} needs a "// expect:" first line`);
-    const messages = check({ project, files: [resolve(file)] }).map((p) => p.message);
+    const problems = check({ project, files: [resolve(file)] });
+    const syntax = problems.filter((p) => p.source === 'syntax').map((p) => p.message);
+    assert.deepEqual(syntax, [], `${name} does not parse, so it tests nothing`);
+    const messages = problems.map((p) => p.message);
     assert.ok(messages.length > 0, `${name} was not refused`);
     assert.ok(messages.some((m) => m.includes(expected)), `${name}: expected "${expected}", got:\n  ${messages.join('\n  ')}`);
   });

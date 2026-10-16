@@ -64,7 +64,7 @@ cp node_modules/fp-shapes/pure/tsconfig.template.json tsconfig.pure.json   # set
 npx fp-shapes-check tsconfig.pure.json
 ```
 
-It works in two layers.
+It works in three layers.
 
 **1. The compiler, with a pure standard library.** The files are compiled with
 `noLib` and `pure/lib.d.ts`, which declares only pure operations. So `fetch`,
@@ -73,34 +73,42 @@ It works in two layers.
 them is an ordinary compile error. The check sets these compiler options
 itself, so editing the tsconfig cannot loosen them.
 
-**2. A check for what the compiler allows on purpose.** It refuses:
+**2. The grammar of L.** Every module item, expression and type must be one of
+the forms of L, the pure language defined in `PROPOSAL.md`. Nothing is banned
+by name: anything that is not one of these forms is reported as "Not in L",
+naming the construct.
 
-- escape hatches: `any`, `as` (except `as const`), `<T>x`, `!`, `@ts-ignore`
-  and friends, `declare` (except `declare const NAME: unique symbol;`),
-  triple-slash references;
-- mutation: `let`, `var`, assignment, `++`/`--`, `delete`;
-- branching other than `match` and `bool`: `if`, `switch`, `?:`, `&&`, `||`,
-  `??`, `?.`;
-- loops, `throw`, `try`, classes, `this`, `new`, generators;
-- imports from anywhere except `fp-shapes/pure` and the project's own files;
-- parameters whose type holds a function, method or getter, because the
-  caller could pass one that performs an effect.
+- Module items: imports, exports, type aliases, `const` bindings, and
+  `declare const NAME: unique symbol;` to name an opaque type.
+- Expressions: names, literals, templates, records that list their fields,
+  arrays, property reads, calls, arrow functions (an expression body, or
+  `const` bindings followed by one `return`), arithmetic, unary minus,
+  `as const` and `satisfies`.
+- Types: `string`, `number`, `boolean`, `never`, literal types and unions of
+  them, records with only `readonly` properties, `readonly` arrays and tuples,
+  function types, `typeof` of a tag, and references to the project's types,
+  the library's types, type parameters and `ReadonlyArray`.
+
+Decisions use `match` and `bool`; comparisons use `compare` and `eq`; the
+first element of a non-empty array is `head`.
+
+**3. Imports** come only from `fp-shapes/pure` and the project's own files.
 
 Pure code imports from `fp-shapes/pure`, which has everything except `run`,
 `tryCatch`, `decoder` and creating `Opaque` values: it can describe effects
 as a `Program` but cannot perform them. Your other code runs the program.
 
-**Known gaps.** Values passed into pure code are trusted to be plain data:
-an object with a getter or a Proxy, passed where a plain record is expected,
-can still run code when read (values from `decoder` are plain data). A
-value with extra keys can flow into a narrower type through a variable,
-as everywhere in TypeScript. Every refusal has a test in `test/pure/bad/`.
+**Not yet checked** (see `PROPOSAL.md` §8): a value with extra keys flowing
+into a narrower type through a variable; recursion; recursive types through a
+function. Values passed into pure code are trusted to be plain data, as values
+from `decoder` are. Every refusal has a test in `test/pure/bad/`.
 
 ## Files
 
 | File | Contents |
 |---|---|
-| `src/union.ts` | `Union`, `match`, `bool`, `Option`, `Result`, `NonEmptyArray` |
+| `src/union.ts` | `Union`, `match`, `bool`, `Option`, `Result`, `NonEmptyArray`, `head` |
+| `src/order.ts` | `compare`, `eq` |
 | `src/opaque.ts` | `Opaque` |
 | `src/freeze.ts` | `deepFreeze` |
 | `src/types.ts` | `IsComplete`, `IsDeepReadonly`, `Recursive`, `Equal`, `Expect` |
