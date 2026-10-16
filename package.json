@@ -14,7 +14,7 @@
   "devDependencies": {
     "@types/node": "^26.6.5",
     "tsx": "^4.23.15",
-    "typescript": "^5.9.3"
+    "typescript": "7.0.2"
   },
   "files": [
     "dist",
@@ -35,6 +35,6 @@
     "fp-shapes-check": "./pure/check.mjs"
   },
   "peerDependencies": {
-    "typescript": ">=5.9"
+    "typescript": "7.0.2"
   }
 }

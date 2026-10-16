@@ -1,4 +1,4 @@
-// expect: Property 'key' is missing
+// expect: is not assignable to type 'Program<Door, string, HeldAfter<{}, Door, "lock", "locked">>'
 import { program, type Opaque, type Program } from 'fp-shapes/pure';
 declare const KEY: unique symbol;
 type Key = Opaque<typeof KEY, { readonly id: string }, 'once'>;

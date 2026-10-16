@@ -7,6 +7,10 @@ restrictions checked by the compiler.
 npm run check    # build, type-check (including the type tests), run the tests
 ```
 
+Requires TypeScript 7.0.2 exactly. `fp-shapes-check` uses TypeScript 7's API,
+which the TypeScript team marks unstable, so the version is pinned rather than
+a range.
+
 ## What's in it
 
 **Tagged unions** — `Union`, `match`
